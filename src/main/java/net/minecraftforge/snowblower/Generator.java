@@ -167,7 +167,10 @@ public class Generator {
 
             this.logger.accept("  Committing files");
             git.add().addFilepattern("src").call();
-            git.commit().setMessage(versionInfo.id().toString()).setAuthor("MinecraftForge", "minecraftforge@minecraftforge.net").call();
+            git.commit()
+                .setMessage(versionInfo.id().toString()).setAuthor("SnowBlower", "snow@blower.com")
+                .setSign(false)
+                .call();
 
             deleteRecursive(tmp);
         }
@@ -247,7 +250,7 @@ public class Generator {
         boolean copiedFromExtra = false;
 
         if (this.extraMappings != null) {
-            Path extraMap = this.extraMappings.toPath().resolve(versionInfo.type() + "s").resolve(versionInfo.id().toString()).resolve("maps").resolve(type + ".txt");
+            Path extraMap = this.extraMappings.toPath().resolve(versionInfo.type()).resolve(versionInfo.id().toString()).resolve("maps").resolve(type + ".txt");
             if (Files.exists(extraMap)) {
                 Files.copy(extraMap, mappings.toPath(), StandardCopyOption.REPLACE_EXISTING);
                 copiedFromExtra = true;
