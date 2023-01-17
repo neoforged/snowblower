@@ -88,8 +88,7 @@ public class Generator {
     }
 
     private void run(Git git) throws IOException, GitAPIException {
-        ObjectId headId = git.getRepository().resolve(Constants.HEAD);
-        if (headId != null && git.getRepository().resolve(this.branchName) == null)
+        if (git.getRepository().resolve(Constants.HEAD) != null && git.getRepository().resolve(this.branchName) == null)
             git.checkout().setOrphan(true).setName(this.branchName).call();
 
         Path src = this.output.toPath().resolve("src").resolve("main").resolve("java");
@@ -102,6 +101,7 @@ public class Generator {
             git.checkout().setOrphan(true).setName(this.branchName).call();
         }
 
+        ObjectId headId = git.getRepository().resolve(Constants.HEAD);
         Iterator<RevCommit> iterator = headId == null ? null : git.log().add(headId).call().iterator();
         RevCommit latestCommit = null;
         RevCommit oldestCommit = null;
@@ -158,75 +158,99 @@ public class Generator {
                 return; // We have nothing to do as the latest commit is outside our range of versions to generate
         }
 
-        File tmp = new File(this.output, "tmp");
+        Path cache = this.output.toPath().resolve("build").resolve("cache");
 
         for (VersionManifestV2.VersionInfo versionInfo : toGenerate) {
-            tmp.mkdir();
+            File versionCache = cache.resolve(versionInfo.id().toString()).toFile();
+            versionCache.mkdirs();
 
-            this.generate(src, tmp, versionInfo, Version.query(versionInfo.url()));
-
-            this.logger.accept("  Committing files");
-            git.add().addFilepattern("src").call();
-            git.commit()
-                .setMessage(versionInfo.id().toString()).setAuthor("SnowBlower", "snow@blower.com")
-                .setSign(false)
-                .call();
-
-            deleteRecursive(tmp);
+            if (this.generate(src, versionCache, versionInfo, Version.query(versionInfo.url()))) {
+                this.logger.accept("  Committing files");
+                git.add().addFilepattern("src").call();
+                git.commit()
+                    .setMessage(versionInfo.id().toString()).setAuthor("SnowBlower", "snow@blower.com")
+                    .setSign(false)
+                    .call();
+            }
         }
     }
 
-    private void generate(Path src, File tmp, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
+    private boolean generate(Path src, File cache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
         this.logger.accept("Generating " + versionInfo.id());
         deleteRecursive(src.toFile());
 
-        this.logger.accept("  Downloading client jar");
-        File clientJar = new File(tmp, "client.jar");
-        copy(version, clientJar, "client");
+        IMappingFile clientMojToObj = downloadMappings(cache, versionInfo, version, "client");
 
-        this.logger.accept("  Downloading server jar");
-        File serverJar = new File(tmp, "server.jar");
-        copy(version, serverJar, "server");
+        if (clientMojToObj == null) {
+            this.logger.accept("  Client mappings not found, skipping version");
+            return false;
+        }
 
-        IMappingFile clientObjToMoj = downloadMappings(tmp, versionInfo, version, "client");
-        IMappingFile serverObjToMoj = downloadMappings(tmp, versionInfo, version, "server");
+        IMappingFile serverMojToObj = downloadMappings(cache, versionInfo, version, "server");
 
-        if (!canMerge(clientObjToMoj, serverObjToMoj))
+        if (serverMojToObj == null) {
+            this.logger.accept("  Server mappings not found, skipping version");
+            return false;
+        }
+
+        if (!canMerge(clientMojToObj, serverMojToObj))
             throw new IllegalStateException("Client mappings for " + versionInfo.id() + " are not a strict superset of the server mappings.");
 
-        File joinedJar = new File(tmp, "joined.jar");
+        File clientJar = new File(cache, "client.jar");
+        if (!clientJar.exists()) {
+            this.logger.accept("  Downloading client jar");
+            if (!copy(version, clientJar, "client"))
+                throw new IllegalStateException();
+        }
 
-        Merger merger = new Merger(clientJar, serverJar, joinedJar);
-        // Whitelist only Mojang classes to process
-        clientObjToMoj.getClasses().forEach(cls -> merger.whitelist(cls.getOriginal()));
-        merger.annotate(AnnotationVersion.API, true);
-        merger.keepData();
-        merger.skipMeta();
-        merger.process();
+        File serverJar = new File(cache, "server.jar");
+        if (!serverJar.exists()) {
+            this.logger.accept("  Downloading server jar");
+            if (!copy(version, serverJar, "server"))
+                throw new IllegalStateException();
+        }
 
-        File renamedJar = new File(tmp, "joined-renamed.jar");
-        File clientMappingsReversed = new File(tmp, "client_mappings_reversed.tsrg");
-        clientObjToMoj.write(clientMappingsReversed.toPath(), IMappingFile.Format.TSRG2, false);
+        File joinedJar = new File(cache, "joined.jar");
 
-        this.logger.accept("  Renaming joined jar");
-        Renamer.builder()
-                .input(joinedJar)
-                .output(renamedJar)
-                .map(clientMappingsReversed)
-                .add(Transformer.parameterAnnotationFixerFactory())
-                .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
-                .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
-                .add(Transformer.recordFixerFactory())
-                .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
-                .logger(s -> {}).build().run();
+        if (!joinedJar.exists()) {
+            this.logger.accept("  Merging client and server jars");
+            Merger merger = new Merger(clientJar, serverJar, joinedJar);
+            // Whitelist only Mojang classes to process
+            clientMojToObj.getClasses().forEach(cls -> merger.whitelist(cls.getMapped()));
+            merger.annotate(AnnotationVersion.API, true);
+            merger.keepData();
+            merger.skipMeta();
+            merger.process();
+        }
 
-        File decompiledJar = new File(tmp, "joined-decompiled.jar");
+        File renamedJar = new File(cache, "joined-renamed.jar");
+        File clientMappingsReversed = new File(cache, "client_mappings_reversed.tsrg");
+        if (!clientMappingsReversed.exists())
+            clientMojToObj.write(clientMappingsReversed.toPath(), IMappingFile.Format.TSRG2, true);
 
-        this.logger.accept("  Decompiling joined jar");
-        ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
-                "-log=ERROR", // IFernflowerLogger.Severity
-                /*"-cfg", "{libraries}", */
-                renamedJar.toString(), decompiledJar.toString()});
+        if (!renamedJar.exists()) {
+            this.logger.accept("  Renaming joined jar");
+            Renamer.builder()
+                    .input(joinedJar)
+                    .output(renamedJar)
+                    .map(clientMappingsReversed)
+                    .add(Transformer.parameterAnnotationFixerFactory())
+                    .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
+                    .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
+                    .add(Transformer.recordFixerFactory())
+                    .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
+                    .logger(s -> {}).build().run();
+        }
+
+        File decompiledJar = new File(cache, "joined-decompiled.jar");
+
+        if (!decompiledJar.exists()) {
+            this.logger.accept("  Decompiling joined jar");
+            ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
+                    "-log=ERROR", // IFernflowerLogger.Severity
+                    /*"-cfg", "{libraries}", */
+                    renamedJar.toString(), decompiledJar.toString()});
+        }
 
         try (FileSystem zipFs = FileSystems.newFileSystem(decompiledJar.toPath())) {
             Path rootPath = zipFs.getPath("/");
@@ -242,25 +266,30 @@ public class Generator {
                 });
             }
         }
+
+        return true;
     }
 
-    private IMappingFile downloadMappings(File tmp, VersionManifestV2.VersionInfo versionInfo, Version version, String type) throws IOException {
-        this.logger.accept("  Downloading " + type + " mappings");
-        File mappings = new File(tmp, type + "_mappings.txt");
-        boolean copiedFromExtra = false;
+    private IMappingFile downloadMappings(File cache, VersionManifestV2.VersionInfo versionInfo, Version version, String type) throws IOException {
+        File mappings = new File(cache, type + "_mappings.txt");
 
-        if (this.extraMappings != null) {
-            Path extraMap = this.extraMappings.toPath().resolve(versionInfo.type()).resolve(versionInfo.id().toString()).resolve("maps").resolve(type + ".txt");
-            if (Files.exists(extraMap)) {
-                Files.copy(extraMap, mappings.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                copiedFromExtra = true;
+        if (!mappings.exists()) {
+            this.logger.accept("  Downloading " + type + " mappings");
+            boolean copiedFromExtra = false;
+
+            if (this.extraMappings != null) {
+                Path extraMap = this.extraMappings.toPath().resolve(versionInfo.type()).resolve(versionInfo.id().toString()).resolve("maps").resolve(type + ".txt");
+                if (Files.exists(extraMap)) {
+                    Files.copy(extraMap, mappings.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    copiedFromExtra = true;
+                }
             }
+
+            if (!copiedFromExtra && !copy(version, mappings, type + "_mappings"))
+                return null;
         }
 
-        if (!copiedFromExtra)
-            copy(version, mappings, type + "_mappings");
-
-        return IMappingFile.load(mappings).reverse();
+        return IMappingFile.load(mappings);
     }
 
     // https://github.com/LexManos/MappingToy/blob/master/src/main/java/net/minecraftforge/lex/mappingtoy/MappingToy.java#L271
@@ -301,9 +330,15 @@ public class Generator {
         }
     }
 
-    private static void copy(Version version, File output, String key) throws IOException {
+    private static boolean copy(Version version, File output, String key) throws IOException {
+        Version.Download download = version.downloads().get(key);
+        if (download == null)
+            return false;
+
         try (FileOutputStream out = new FileOutputStream(output)) {
-            out.getChannel().transferFrom(Channels.newChannel(version.downloads().get(key).url().openStream()), 0, Long.MAX_VALUE);
+            out.getChannel().transferFrom(Channels.newChannel(download.url().openStream()), 0, Long.MAX_VALUE);
         }
+
+        return true;
     }
 }

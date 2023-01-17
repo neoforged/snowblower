@@ -29,6 +29,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 
 public class Main {
     private static final MinecraftVersion V1_14_4 = MinecraftVersion.from("1.14.4");
@@ -39,9 +40,9 @@ public class Main {
         OptionSpec<File> extraMappingsO = parser.accepts("extra-mappings", "When set, points to a directory with extra mappings files").withRequiredArg().ofType(File.class);
         OptionSpec<String> startVerO = parser.accepts("start-ver", "The starting Minecraft version to generate from (inclusive)").withRequiredArg().ofType(String.class).defaultsTo(V1_14_4.toString());
         OptionSpec<String> targetVerO = parser.accepts("target-ver", "The target Minecraft version to generate up to (inclusive)").withRequiredArg().ofType(String.class).required();
-        OptionSpec<String> branchNameO = parser.accepts("branch-name", "The Git branch name, creating an orphan branch if it does not exist").withRequiredArg().ofType(String.class).defaultsTo("main");
+        OptionSpec<String> branchNameO = parser.acceptsAll(List.of("branch-name", "branch"), "The Git branch name, creating an orphan branch if it does not exist").withRequiredArg().ofType(String.class).defaultsTo("main");
         OptionSpec<Void> releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
-        OptionSpec<Void> startOverO = parser.accepts("start-over", "Whether to start over and clear the output folder (and therefore Git history)");
+        OptionSpec<Void> startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
 
         OptionSet options;
         try {
