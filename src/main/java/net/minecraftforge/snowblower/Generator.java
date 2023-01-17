@@ -25,6 +25,8 @@ import net.minecraftforge.fart.api.Renamer;
 import net.minecraftforge.fart.api.SignatureStripperConfig;
 import net.minecraftforge.fart.api.SourceFixerConfig;
 import net.minecraftforge.fart.api.Transformer;
+import net.minecraftforge.mergetool.AnnotationVersion;
+import net.minecraftforge.mergetool.Merger;
 import net.minecraftforge.snowblower.data.Version;
 import net.minecraftforge.snowblower.data.VersionManifestV2;
 import net.minecraftforge.srgutils.IMappingFile;
@@ -49,9 +51,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Generator {
@@ -82,7 +88,8 @@ public class Generator {
     }
 
     private void run(Git git) throws IOException, GitAPIException {
-        if (git.getRepository().resolve(this.branchName) == null)
+        ObjectId headId = git.getRepository().resolve(Constants.HEAD);
+        if (headId != null && git.getRepository().resolve(this.branchName) == null)
             git.checkout().setOrphan(true).setName(this.branchName).call();
 
         Path src = this.output.toPath().resolve("src").resolve("main").resolve("java");
@@ -95,7 +102,6 @@ public class Generator {
             git.checkout().setOrphan(true).setName(this.branchName).call();
         }
 
-        ObjectId headId = git.getRepository().resolve(Constants.HEAD);
         Iterator<RevCommit> iterator = headId == null ? null : git.log().add(headId).call().iterator();
         RevCommit latestCommit = null;
         RevCommit oldestCommit = null;
@@ -175,27 +181,33 @@ public class Generator {
         File clientJar = new File(tmp, "client.jar");
         copy(version, clientJar, "client");
 
-        this.logger.accept("  Downloading client mappings");
-        File clientMappings = new File(tmp, "client_mappings.txt");
-        boolean copiedFromExtra = false;
-        if (this.extraMappings != null) {
-            Path extraClientMappings = this.extraMappings.toPath().resolve(versionInfo.type() + "s").resolve(versionInfo.id().toString()).resolve("maps").resolve("client.txt");
-            if (Files.exists(extraClientMappings)) {
-                Files.copy(extraClientMappings, clientMappings.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                copiedFromExtra = true;
-            }
-        }
-        if (!copiedFromExtra)
-            copy(version, clientMappings, "client_mappings");
+        this.logger.accept("  Downloading server jar");
+        File serverJar = new File(tmp, "server.jar");
+        copy(version, serverJar, "server");
 
+        IMappingFile clientObjToMoj = downloadMappings(tmp, versionInfo, version, "client");
+        IMappingFile serverObjToMoj = downloadMappings(tmp, versionInfo, version, "server");
+
+        if (!canMerge(clientObjToMoj, serverObjToMoj))
+            throw new IllegalStateException("Client mappings for " + versionInfo.id() + " are not a strict superset of the server mappings.");
+
+        File joinedJar = new File(tmp, "joined.jar");
+
+        Merger merger = new Merger(clientJar, serverJar, joinedJar);
+        // Whitelist only Mojang classes to process
+        clientObjToMoj.getClasses().forEach(cls -> merger.whitelist(cls.getOriginal()));
+        merger.annotate(AnnotationVersion.API, true);
+        merger.keepData();
+        merger.skipMeta();
+        merger.process();
+
+        File renamedJar = new File(tmp, "joined-renamed.jar");
         File clientMappingsReversed = new File(tmp, "client_mappings_reversed.tsrg");
-        IMappingFile.load(clientMappings).write(clientMappingsReversed.toPath(), IMappingFile.Format.TSRG2, true);
+        clientObjToMoj.write(clientMappingsReversed.toPath(), IMappingFile.Format.TSRG2, false);
 
-        File renamedJar = new File(tmp, "client-renamed.jar");
-
-        this.logger.accept("  Renaming client jar");
+        this.logger.accept("  Renaming joined jar");
         Renamer.builder()
-                .input(clientJar)
+                .input(joinedJar)
                 .output(renamedJar)
                 .map(clientMappingsReversed)
                 .add(Transformer.parameterAnnotationFixerFactory())
@@ -205,9 +217,9 @@ public class Generator {
                 .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
                 .logger(s -> {}).build().run();
 
-        File decompiledJar = new File(tmp, "client-decompiled.jar");
+        File decompiledJar = new File(tmp, "joined-decompiled.jar");
 
-        this.logger.accept("  Decompiling client jar");
+        this.logger.accept("  Decompiling joined jar");
         ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
                 "-log=ERROR", // IFernflowerLogger.Severity
                 /*"-cfg", "{libraries}", */
@@ -227,6 +239,52 @@ public class Generator {
                 });
             }
         }
+    }
+
+    private IMappingFile downloadMappings(File tmp, VersionManifestV2.VersionInfo versionInfo, Version version, String type) throws IOException {
+        this.logger.accept("  Downloading " + type + " mappings");
+        File mappings = new File(tmp, type + "_mappings.txt");
+        boolean copiedFromExtra = false;
+
+        if (this.extraMappings != null) {
+            Path extraMap = this.extraMappings.toPath().resolve(versionInfo.type() + "s").resolve(versionInfo.id().toString()).resolve("maps").resolve(type + ".txt");
+            if (Files.exists(extraMap)) {
+                Files.copy(extraMap, mappings.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                copiedFromExtra = true;
+            }
+        }
+
+        if (!copiedFromExtra)
+            copy(version, mappings, type + "_mappings");
+
+        return IMappingFile.load(mappings).reverse();
+    }
+
+    // https://github.com/LexManos/MappingToy/blob/master/src/main/java/net/minecraftforge/lex/mappingtoy/MappingToy.java#L271
+    private static boolean canMerge(IMappingFile client, IMappingFile server) {
+        // Test if the client is a strict super-set of server.
+        // If so, the client mappings can be used for the joined jar.
+        final Function<IMappingFile.IField, String> fldToString = fld -> fld.getOriginal() + " " + fld.getDescriptor() + " -> " + fld.getMapped() + " " + fld.getMappedDescriptor();
+        final Function<IMappingFile.IMethod, String> mtdToString = mtd -> mtd.getOriginal() + " " + mtd.getDescriptor() + " -> " + mtd.getMapped() + " " + mtd.getMappedDescriptor();
+
+        for (IMappingFile.IClass clsS : server.getClasses()) {
+            IMappingFile.IClass clsC = client.getClass(clsS.getOriginal());
+            if (clsC == null || !clsS.getMapped().equals(clsC.getMapped()))
+                return false;
+
+            Set<String> fldsS = clsS.getFields().stream().map(fldToString).collect(Collectors.toCollection(HashSet::new));
+            Set<String> fldsC = clsC.getFields().stream().map(fldToString).collect(Collectors.toCollection(HashSet::new));
+            Set<String> mtdsS = clsS.getMethods().stream().map(mtdToString).collect(Collectors.toCollection(HashSet::new));
+            Set<String> mtdsC = clsC.getMethods().stream().map(mtdToString).collect(Collectors.toCollection(HashSet::new));
+
+            fldsS.removeAll(fldsC);
+            mtdsS.removeAll(mtdsC);
+
+            if (!fldsS.isEmpty() || !mtdsS.isEmpty())
+                return false;
+        }
+
+        return true;
     }
 
     private static void deleteRecursive(File dir) throws IOException {
