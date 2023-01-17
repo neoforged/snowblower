@@ -36,11 +36,12 @@ public class Main {
     public static void main(String[] args) throws IOException, GitAPIException {
         OptionParser parser = new OptionParser();
         OptionSpec<File> outputO = parser.accepts("output", "Output directory to put the git directory in").withRequiredArg().ofType(File.class).required();
-        OptionSpec<Void> startOverO = parser.accepts("start-over", "Whether to start over and clear the output folder (and therefore Git history)");
+        OptionSpec<File> extraMappingsO = parser.accepts("extra-mappings", "When set, points to a directory with extra mappings files").withRequiredArg().ofType(File.class);
         OptionSpec<String> startVerO = parser.accepts("start-ver", "The starting Minecraft version to generate from (inclusive)").withRequiredArg().ofType(String.class).defaultsTo(V1_14_4.toString());
         OptionSpec<String> targetVerO = parser.accepts("target-ver", "The target Minecraft version to generate up to (inclusive)").withRequiredArg().ofType(String.class).required();
         OptionSpec<String> branchNameO = parser.accepts("branch-name", "The Git branch name, creating an orphan branch if it does not exist").withRequiredArg().ofType(String.class).defaultsTo("main");
         OptionSpec<Void> releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
+        OptionSpec<Void> startOverO = parser.accepts("start-over", "Whether to start over and clear the output folder (and therefore Git history)");
 
         OptionSet options;
         try {
@@ -54,14 +55,15 @@ public class Main {
         }
 
         File output = options.valueOf(outputO);
+        File extraMappings = options.valueOf(extraMappingsO);
         boolean startOver = options.has(startOverO);
         MinecraftVersion startVer = MinecraftVersion.from(options.valueOf(startVerO));
-        if (startVer.compareTo(V1_14_4) < 0)
-            throw new IllegalArgumentException("Start version must be greater than or equal to 1.14.4");
+        // if (startVer.compareTo(V1_14_4) < 0)
+        //     throw new IllegalArgumentException("Start version must be greater than or equal to 1.14.4");
         MinecraftVersion targetVer = MinecraftVersion.from(options.valueOf(targetVerO));
         String branchName = options.valueOf(branchNameO);
         boolean releasesOnly = options.has(releasesOnlyO);
 
-        new Generator(output, startOver, startVer, targetVer, branchName, releasesOnly, System.out::println).run();
+        new Generator(output, extraMappings, startVer, targetVer, branchName, startOver, releasesOnly, System.out::println).run();
     }
 }

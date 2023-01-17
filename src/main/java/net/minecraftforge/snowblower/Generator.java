@@ -44,6 +44,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -55,6 +56,7 @@ import java.util.stream.Stream;
 
 public class Generator {
     private final File output;
+    private final File extraMappings;
     private final boolean startOver;
     private final MinecraftVersion startVer;
     private final MinecraftVersion targetVer;
@@ -62,8 +64,9 @@ public class Generator {
     private final boolean releasesOnly;
     private final Consumer<String> logger;
 
-    public Generator(File output, boolean startOver, MinecraftVersion startVer, MinecraftVersion targetVer, String branchName, boolean releasesOnly, Consumer<String> logger) {
+    public Generator(File output, File extraMappings, MinecraftVersion startVer, MinecraftVersion targetVer, String branchName, boolean startOver, boolean releasesOnly, Consumer<String> logger) {
         this.output = output;
+        this.extraMappings = extraMappings;
         this.startOver = startOver;
         this.startVer = startVer;
         this.targetVer = targetVer;
@@ -174,7 +177,16 @@ public class Generator {
 
         this.logger.accept("  Downloading client mappings");
         File clientMappings = new File(tmp, "client_mappings.txt");
-        copy(version, clientMappings, "client_mappings");
+        boolean copiedFromExtra = false;
+        if (this.extraMappings != null) {
+            Path extraClientMappings = this.extraMappings.toPath().resolve(versionInfo.type() + "s").resolve(versionInfo.id().toString()).resolve("maps").resolve("client.txt");
+            if (Files.exists(extraClientMappings)) {
+                Files.copy(extraClientMappings, clientMappings.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                copiedFromExtra = true;
+            }
+        }
+        if (!copiedFromExtra)
+            copy(version, clientMappings, "client_mappings");
 
         File clientMappingsReversed = new File(tmp, "client_mappings_reversed.tsrg");
         IMappingFile.load(clientMappings).write(clientMappingsReversed.toPath(), IMappingFile.Format.TSRG2, true);
