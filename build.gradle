@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'maven-publish'
     id 'org.cadixdev.licenser' version '0.6.1'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
     id 'net.minecraftforge.gradleutils' version '2.+'
 }
 
@@ -13,12 +14,47 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
 repositories {
     mavenCentral()
+
+    maven gradleutils.forgeMaven
+}
+
+configurations {
+    shade
+    implementation.extendsFrom shade
+}
+
+dependencies {
+    shade 'org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r'
+    shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'
+    shade 'com.google.code.gson:gson:2.10.1'
+    shade 'net.minecraftforge:srgutils:0.4.13'
+    shade 'net.minecraftforge:ForgeAutoRenamingTool:0.1.24'
+    shade 'net.minecraftforge:forgeflower:2.0.605.2'
+}
+
+jar {
+    manifest {
+        attributes([
+                'Main-Class': 'net.minecraftforge.snowblower.Main'
+        ])
+    }
+}
+
+shadowJar {
+    archiveClassifier = 'all'
+    configurations = [project.configurations.shade]
+
+    minimize()
+}
+
+artifacts {
+    archives shadowJar
 }
 
 license {
     header = file('HEADER')
     ext {
-        name = 'HappySnowman'
+        name = 'Snowblower'
         year = 2023
         fullname = 'Forge Development LLC'
     }
