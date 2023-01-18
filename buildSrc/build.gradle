@@ -1,0 +1,13 @@
+plugins {
+    id 'org.cadixdev.licenser' version '0.6.1'
+}
+
+license {
+    header = new File(projectDir.parentFile, 'HEADER')
+    ext {
+        name = 'Snowblower'
+        year = 2023
+        fullname = 'Forge Development LLC'
+    }
+    exclude '**/*.properties'
+}

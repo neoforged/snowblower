@@ -1,6 +1,10 @@
+import net.minecraftforge.snowblower.gradle.DependencyHashingTask
+
 plugins {
     id 'java'
     id 'maven-publish'
+    id 'eclipse'
+    id 'idea'
     id 'org.cadixdev.licenser' version '0.6.1'
     id 'com.github.johnrengelman.shadow' version '7.1.2'
     id 'net.minecraftforge.gradleutils' version '2.+'
@@ -24,14 +28,35 @@ configurations {
 }
 
 dependencies {
+    // When updating shade dependencies, you must also run the generateDependencyHashes task
     shade 'org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r'
     shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'
     shade 'com.google.code.gson:gson:2.10.1'
     shade 'net.minecraftforge:srgutils:0.4.13'
     shade 'net.minecraftforge:mergetool:1.1.5'
     shade 'net.minecraftforge:ForgeAutoRenamingTool:0.1.24'
-    shade 'net.minecraftforge:forgeflower:2.0.605.2'
+    shade 'net.minecraftforge:forgeflower:2.0.605.3'
 }
+
+tasks.register('generateDependencyHashes', DependencyHashingTask) {
+    configuration = configurations.shade
+    output = file('src/main/generated_resources/dependency_hashes.txt')
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDirs += file('src/main/generated_resources')
+        }
+    }
+}
+
+processResources {
+    dependsOn tasks.named('generateDependencyHashes')
+}
+
+eclipseClasspath.dependsOn('generateDependencyHashes')
+tasks.idea.dependsOn('generateDependencyHashes')
 
 jar {
     manifest {

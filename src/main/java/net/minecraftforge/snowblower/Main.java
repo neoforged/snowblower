@@ -29,12 +29,15 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Path;
 import java.util.List;
 
 public class Main {
     private static final MinecraftVersion V1_14_4 = MinecraftVersion.from("1.14.4");
 
-    public static void main(String[] args) throws IOException, GitAPIException {
+    public static void main(String[] args) throws IOException, GitAPIException, URISyntaxException {
         OptionParser parser = new OptionParser();
         OptionSpec<File> outputO = parser.accepts("output", "Output directory to put the git directory in").withRequiredArg().ofType(File.class).required();
         OptionSpec<File> extraMappingsO = parser.accepts("extra-mappings", "When set, points to a directory with extra mappings files").withRequiredArg().ofType(File.class);
@@ -64,7 +67,11 @@ public class Main {
         MinecraftVersion targetVer = MinecraftVersion.from(options.valueOf(targetVerO));
         String branchName = options.valueOf(branchNameO);
         boolean releasesOnly = options.has(releasesOnlyO);
+        URL depHashCacheUrl = Main.class.getResource("/dependency_hashes.txt");
+        if (depHashCacheUrl == null)
+            throw new IllegalStateException("Could not find dependency_hashes.txt on classpath");
+        DependencyHashCache depCache = DependencyHashCache.load(Path.of(depHashCacheUrl.toURI()));
 
-        new Generator(output, extraMappings, startVer, targetVer, branchName, startOver, releasesOnly, System.out::println).run();
+        new Generator(output, extraMappings, startVer, targetVer, branchName, startOver, releasesOnly, depCache, System.out::println).run();
     }
 }

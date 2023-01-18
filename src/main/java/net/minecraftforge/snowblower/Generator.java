@@ -44,7 +44,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -71,9 +70,11 @@ public class Generator {
     private final MinecraftVersion targetVer;
     private final String branchName;
     private final boolean releasesOnly;
+    private final DependencyHashCache depCache;
     private final Consumer<String> logger;
 
-    public Generator(File output, File extraMappings, MinecraftVersion startVer, MinecraftVersion targetVer, String branchName, boolean startOver, boolean releasesOnly, Consumer<String> logger) {
+    public Generator(File output, File extraMappings, MinecraftVersion startVer, MinecraftVersion targetVer, String branchName, boolean startOver, boolean releasesOnly,
+            DependencyHashCache depCache, Consumer<String> logger) {
         this.output = output.toPath();
         this.extraMappings = extraMappings == null ? null : extraMappings.toPath();
         this.startOver = startOver;
@@ -81,6 +82,7 @@ public class Generator {
         this.targetVer = targetVer;
         this.branchName = branchName;
         this.releasesOnly = releasesOnly;
+        this.depCache = depCache;
         this.logger = logger;
     }
 
@@ -258,7 +260,14 @@ public class Generator {
         var renamed = getRenamedJar(cache, joined, mappings, libCache, libs);
         var decomped = getDecompiledJar(cache, renamed, libCache, libs);
 
-        Set<Path> existingFiles = Files.exists(src) ? Files.walk(src).filter(Files::isRegularFile).collect(Collectors.toSet()) : new HashSet<>();
+        Set<Path> existingFiles;
+        if (Files.exists(src)) {
+            try (Stream<Path> walker = Files.walk(src)) {
+                existingFiles = walker.filter(Files::isRegularFile).collect(Collectors.toSet());
+            }
+        } else {
+            existingFiles = new HashSet<>();
+        }
         var java = src.resolve("java");
         var resources = src.resolve("resources");
 
@@ -397,7 +406,7 @@ public class Generator {
         }
 
         var key = new Cache()
-            // TODO: Merger Library Hash
+            .put(Tools.MERGETOOL, this.depCache)
             .put("client", clientJar)
             .put("server", serverJar)
             .put("map", mappings);
@@ -444,7 +453,7 @@ public class Generator {
 
     private Path getRenamedJar(Path cache, Path joined, Path mappings, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
-            // TODO: Renamer tool hash
+            .put(Tools.FART, this.depCache)
             .put("joined", joined)
             .put("map", mappings);
 
@@ -479,7 +488,7 @@ public class Generator {
 
     private Path getDecompiledJar(Path cache, Path renamed, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
-            // TODO: Decompiler Tool Hash
+            .put(Tools.FORGEFLOWER, this.depCache)
             .put("renamed", renamed);
         for (var lib : libs) {
             var relative = libCache.relativize(lib);
@@ -494,7 +503,7 @@ public class Generator {
             var cfg = cache.resolve("joined-libraries.cfg");
             writeLines(cfg, libs.stream().map(l -> "-e=" + l.toString()).toArray(String[]::new));
 
-            ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
+            ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
                 "-log=ERROR", // IFernflowerLogger.Severity
                 "-cfg", cfg.toString(),
                 renamed.toString(),
@@ -518,8 +527,8 @@ public class Generator {
     }
 
     private static void writeLines(Path target, String... lines) throws IOException {
-        String attrib = Stream.of(lines).collect(Collectors.joining("\n"));
-        Files.write(target, attrib.getBytes(StandardCharsets.UTF_8));
+        String attrib = String.join("\n", lines);
+        Files.writeString(target, attrib);
     }
 
     private boolean downloadFile(Path output, Version version, String key) throws IOException {
@@ -531,42 +540,38 @@ public class Generator {
     }
 
     private boolean downloadFile(Path file, URL url, String sha1) throws IOException {
-        try {
-            this.logger.accept("  Downloading " + url.toString());
-            var connection = (HttpURLConnection)url.openConnection();
-            connection.setUseCaches(false);
-            connection.setDefaultUseCaches(false);
-            connection.setRequestProperty("Cache-Control", "no-store,max-age=0,no-cache");
-            connection.setRequestProperty("Expires", "0");
-            connection.setRequestProperty("Pragma", "no-cache");
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
-            connection.connect();
+        this.logger.accept("  Downloading " + url.toString());
+        var connection = (HttpURLConnection)url.openConnection();
+        connection.setUseCaches(false);
+        connection.setDefaultUseCaches(false);
+        connection.setRequestProperty("Cache-Control", "no-store,max-age=0,no-cache");
+        connection.setRequestProperty("Expires", "0");
+        connection.setRequestProperty("Pragma", "no-cache");
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(5000);
+        connection.connect();
 
-            try (InputStream in = connection.getInputStream();
-                 OutputStream out = Files.newOutputStream(file);) {
-                copy(in, out);
-            }
-
-            if (sha1 != null) {
-                var actual = HashFunction.SHA1.hash(file);
-                if (!actual.equals(sha1)) {
-                    Files.delete(file);
-                    throw new IOException("Failed to download " + url.toString() + " Invalid Hash:\n" +
-                        "    Expected: " + sha1 + "\n" +
-                        "    Actual: " + actual);
-                }
-            }
-
-            return true;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        try (InputStream in = connection.getInputStream();
+             OutputStream out = Files.newOutputStream(file)) {
+            copy(in, out);
         }
+
+        if (sha1 != null) {
+            var actual = HashFunction.SHA1.hash(file);
+            if (!actual.equals(sha1)) {
+                Files.delete(file);
+                throw new IOException("Failed to download " + url + " Invalid Hash:\n" +
+                    "    Expected: " + sha1 + "\n" +
+                    "    Actual: " + actual);
+            }
+        }
+
+        return true;
     }
 
     private static void copy(InputStream input, OutputStream output) throws IOException {
         byte[] buf = new byte[0x100];
-        int cnt = 0;
+        int cnt;
         while ((cnt = input.read(buf, 0, buf.length)) != -1) {
             output.write(buf, 0, cnt);
         }

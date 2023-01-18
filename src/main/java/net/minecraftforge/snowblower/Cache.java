@@ -21,13 +21,11 @@
 package net.minecraftforge.snowblower;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Cache {
@@ -38,7 +36,7 @@ public class Cache {
         if (lines == null || lines.length == 0)
             comment = null;
         else
-            comment = Stream.of(lines).collect(Collectors.joining("\n"));
+            comment = String.join("\n", lines);
         return this;
     }
 
@@ -52,12 +50,17 @@ public class Cache {
         return this;
     }
 
+    public Cache put(String key, DependencyHashCache depCache) {
+        data.put(key, depCache.getHash(key));
+        return this;
+    }
+
     public void write(Path target) throws IOException {
         StringBuilder buf = new StringBuilder();
         if (comment != null)
             buf.append(comment).append("\n\n");
         data.forEach((k,v) -> buf.append(k).append(": ").append(v).append('\n'));
-        Files.write(target, buf.toString().getBytes(StandardCharsets.UTF_8));
+        Files.writeString(target, buf.toString());
     }
 
     public boolean isValid(Path target) throws IOException {
