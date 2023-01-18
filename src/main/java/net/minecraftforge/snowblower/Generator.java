@@ -256,8 +256,6 @@ public class Generator {
     }
 
     private boolean generate(Path src, File cache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
-        deleteRecursive(src.toFile());
-
         IMappingFile clientMojToObj = downloadMappings(cache, versionInfo, version, "client");
 
         if (clientMojToObj == null) {
@@ -331,20 +329,37 @@ public class Generator {
                     renamedJar.toString(), decompiledJar.toString()});
         }
 
+        Set<Path> existingFiles = Files.exists(src) ? Files.walk(src).filter(Files::isRegularFile).collect(Collectors.toSet()) : new HashSet<>();
+
         try (FileSystem zipFs = FileSystems.newFileSystem(decompiledJar.toPath())) {
             Path rootPath = zipFs.getPath("/");
             try (Stream<Path> walker = Files.walk(rootPath)) {
                 walker.filter(p -> p.toString().endsWith(".java") && Files.isRegularFile(p)).forEach(p -> {
                     try {
-                        Path target = this.output.toPath().resolve("src").resolve("main").resolve("java").resolve(rootPath.relativize(p).toString());
-                        Files.createDirectories(target.getParent());
-                        Files.copy(p, target);
+                        Path target = src.resolve(rootPath.relativize(p).toString());
+                        if (existingFiles.remove(target)) {
+                            String existing = HashFunction.MD5.hash(target);
+                            String created = HashFunction.MD5.hash(p);
+                            if (!existing.equals(created))
+                                Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
+                        } else {
+                            Files.createDirectories(target.getParent());
+                            Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
+                        }
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
                 });
             }
         }
+
+        existingFiles.stream().sorted().forEach(p -> {
+            try {
+                Files.delete(p);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
 
         return true;
     }
