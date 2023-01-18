@@ -42,6 +42,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.channels.Channels;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -51,9 +52,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -88,38 +92,33 @@ public class Generator {
     }
 
     private void run(Git git) throws IOException, GitAPIException {
+        this.output.mkdirs();
+
         if (git.getRepository().resolve(Constants.HEAD) != null && git.getRepository().resolve(this.branchName) == null)
             git.checkout().setOrphan(true).setName(this.branchName).call();
 
-        Path src = this.output.toPath().resolve("src").resolve("main").resolve("java");
+        Path src = this.output.toPath().resolve("src");
 
         if (this.startOver) {
             deleteRecursive(src.toFile());
+            deleteInitalCommit(this.output.toPath());
 
             git.checkout().setOrphan(true).setName("orphan_temp").call();
             git.branchDelete().setBranchNames(this.branchName).setForce(true).call();
             git.checkout().setOrphan(true).setName(this.branchName).call();
+            git.reset().call();
         }
 
         ObjectId headId = git.getRepository().resolve(Constants.HEAD);
         Iterator<RevCommit> iterator = headId == null ? null : git.log().add(headId).call().iterator();
         RevCommit latestCommit = null;
-        RevCommit oldestCommit = null;
 
-        if (iterator != null) {
-            while (iterator.hasNext()) {
-                oldestCommit = iterator.next();
-                if (latestCommit == null)
-                    latestCommit = oldestCommit;
-            }
+        if (iterator != null && iterator.hasNext()) {
+            latestCommit = iterator.next();
         }
 
-        if (!this.startOver && oldestCommit != null && !oldestCommit.getShortMessage().equals(this.startVer.toString())) {
-            this.logger.accept("The starting commit on this branch does not match the provided starting version. Please choose a different branch or add the --start-over flag and try again.");
+        if (!checkMetadata(git, this.startOver, this.output, this.startVer))
             return;
-        }
-
-        this.output.mkdirs();
 
         VersionManifestV2.VersionInfo[] versions = VersionManifestV2.query().versions();
         int startIdx = -1;
@@ -159,24 +158,104 @@ public class Generator {
         }
 
         Path cache = this.output.toPath().resolve("build").resolve("cache");
+        Path java = src.resolve("main").resolve("java");
 
-        for (VersionManifestV2.VersionInfo versionInfo : toGenerate) {
+        for (int x = 0; x < toGenerate.size(); x++) {
+            var versionInfo = toGenerate.get(x);
             File versionCache = cache.resolve(versionInfo.id().toString()).toFile();
             versionCache.mkdirs();
 
-            if (this.generate(src, versionCache, versionInfo, Version.query(versionInfo.url()))) {
+            this.logger.accept("[" + x + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
+            if (this.generate(java, versionCache, versionInfo, Version.query(versionInfo.url()))) {
                 this.logger.accept("  Committing files");
-                git.add().addFilepattern("src").call();
-                git.commit()
-                    .setMessage(versionInfo.id().toString()).setAuthor("SnowBlower", "snow@blower.com")
-                    .setSign(false)
-                    .call();
+                git.add().addFilepattern("src").call(); // Add all new files, and update existing ones.
+                git.add().addFilepattern("src").setUpdate(true).call(); // Need this to remove all missing files.
+                commit(git, versionInfo.id().toString());
             }
         }
     }
 
+    private void deleteInitalCommit(Path root) throws IOException {
+        for (String file : new String[] {"Snowblower.txt", ".gitattributes", ".gitignore"}) {
+            Path target = root.resolve(file);
+            if (Files.exists(target))
+                Files.delete(target);
+        }
+    }
+
+    private boolean checkMetadata(Git git, boolean fresh, File root, MinecraftVersion start) throws IOException, GitAPIException {
+        Map<String, String> meta = new LinkedHashMap<>();
+        meta.put("Snowblower", "I should put the git hash, or version number, but that needs to wait till I teach this thing about its own version"); //TODO
+        meta.put("Start", start.toString());
+
+        File file = new File(root, "Snowblower.txt");
+        if (!file.exists()) {
+            if (!fresh) {
+                this.logger.accept("The starting commit on this branch does not match the provided starting version. Please choose a different branch or add the --start-over flag and try again.");
+                return false;
+            } else {
+                // Create metadata file, eventually use it for cache busting?
+                StringBuilder output = new StringBuilder();
+                output.append("Source files creates by Snowblower\n");
+                output.append("https://github.com/MinecraftForge/Snowblower\n\n");
+                meta.forEach((k,v) -> output.append(k).append(": ").append(v).append('\n'));
+                Files.write(file.toPath(), output.toString().getBytes(StandardCharsets.UTF_8));
+                git.add().addFilepattern("Snowblower.txt").call();
+
+                // Create some git metadata files to make life sane
+                String attrib = Stream.of(
+                    "* text eol=lf",
+                    "*.java text eol=lf",
+                    "*.png binary",
+                    "*.gif binary"
+                ).collect(Collectors.joining("\n"));
+                Files.write(new File(root, ".gitattributes").toPath(), attrib.getBytes(StandardCharsets.UTF_8));
+                git.add().addFilepattern(".gitattributes").call();
+
+                // Create some git metadata files to make life sane
+                String ignore = Stream.of(
+                    "/build"
+                ).collect(Collectors.joining("\n"));
+                Files.write(new File(root, ".gitignore").toPath(), ignore.getBytes(StandardCharsets.UTF_8));
+                git.add().addFilepattern(".gitignore").call();
+
+                commit(git, "Init");
+
+                return true;
+            }
+        } else {
+            Map<String, String> existing = new HashMap<>();
+            try (Stream<String> stream = Files.lines(file.toPath())) {
+                stream.forEach(l -> {
+                    int idx = l.indexOf(' ');
+                    if (idx <= 1 || l.charAt(idx - 1) != ':')
+                        return;
+
+                    String key = l.substring(0, idx - 1);
+                    String value = l.substring(idx + 1);
+                    existing.put(key, value);
+                });
+            }
+
+            if (!existing.equals(meta)) {
+                this.logger.accept("The starting commit on this branch does not match the provided starting version. Please choose a different branch or add the --start-over flag and try again.");
+                return false;
+            }
+            return true;
+        }
+
+    }
+
+    private void commit(Git git, String message) throws GitAPIException {
+        git.commit()
+            .setMessage(message)
+            .setAuthor("SnowBlower", "snow@blower.com")
+            .setCommitter("SnowBlower", "snow@blower.com")
+            .setSign(false)
+            .call();
+    }
+
     private boolean generate(Path src, File cache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
-        this.logger.accept("Generating " + versionInfo.id());
         deleteRecursive(src.toFile());
 
         IMappingFile clientMojToObj = downloadMappings(cache, versionInfo, version, "client");
