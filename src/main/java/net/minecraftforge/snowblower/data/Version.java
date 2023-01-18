@@ -34,6 +34,6 @@ public record Version(Map<String, Download> downloads, List<Library> libraries) 
         return VersionManifestV2.GSON.fromJson(new InputStreamReader(urlConnection.getInputStream()), Version.class);
     }
 
-    public record Download(String sha1, int size, URL url) {}
+    public record Download(String path, String sha1, int size, URL url) {}
     public record Library(Map<String, Download> downloads, String name) {}
 }

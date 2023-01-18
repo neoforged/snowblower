@@ -39,9 +39,11 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.channels.Channels;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -155,6 +157,7 @@ public class Generator {
         }
 
         var cache = this.output.resolve("build").resolve("cache");
+        var libs = cache.resolve("libraris");
         var main = src.resolve("main");
 
         for (int x = 0; x < toGenerate.size(); x++) {
@@ -163,7 +166,8 @@ public class Generator {
             Files.createDirectories(versionCache);
 
             this.logger.accept("[" + (x + 1) + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
-            if (this.generate(main, versionCache, versionInfo, Version.query(versionInfo.url()))) { //TODO: Cache version json, that requires etags
+            var version = Version.query(versionInfo.url()); //TODO: Cache version json, that requires etags
+            if (this.generate(main, versionCache, libs, versionInfo, version)) {
                 this.logger.accept("  Committing files");
                 git.add().addFilepattern("src").call(); // Add all new files, and update existing ones.
                 git.add().addFilepattern("src").setUpdate(true).call(); // Need this to remove all missing files.
@@ -244,14 +248,15 @@ public class Generator {
         git.add().addFilepattern(path.toString()).call();
     }
 
-    private boolean generate(Path src, Path cache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
+    private boolean generate(Path src, Path cache, Path libCache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
         var mappings = getMergedMappings(cache, versionInfo, version);
         if (mappings == null)
             return false;
 
         var joined = getJoinedJar(cache, version, mappings);
-        var renamed = getRenamedJar(cache, joined, mappings);
-        var decomped = getDecompiledJar(cache, renamed);
+        var libs = getLibraries(libCache, version);
+        var renamed = getRenamedJar(cache, joined, mappings, libCache, libs);
+        var decomped = getDecompiledJar(cache, renamed, libCache, libs);
 
         Set<Path> existingFiles = Files.exists(src) ? Files.walk(src).filter(Files::isRegularFile).collect(Collectors.toSet()) : new HashSet<>();
         var java = src.resolve("java");
@@ -308,7 +313,7 @@ public class Generator {
                 }
             }
 
-            if (!copiedFromExtra && !copy(version, mappings, type + "_mappings"))
+            if (!copiedFromExtra && !downloadFile(mappings, version, type + "_mappings"))
                 return null;
         }
 
@@ -380,14 +385,14 @@ public class Generator {
         var clientJar = cache.resolve("client.jar");
         if (!Files.exists(clientJar)) { // TODO: Check hashes
             this.logger.accept("  Downloading client jar");
-            if (!copy(version, clientJar, "client"))
+            if (!downloadFile(clientJar, version, "client"))
                 throw new IllegalStateException("Failed to download client jar");
         }
 
         var serverJar = cache.resolve("server.jar");
         if (!Files.exists(serverJar)) { // TODO: Check hashes
             this.logger.accept("  Downloading server jar");
-            if (!copy(version, serverJar, "server"))
+            if (!downloadFile(serverJar, version, "server"))
                 throw new IllegalStateException("Failed to download dedicated server jar");
         }
 
@@ -416,30 +421,55 @@ public class Generator {
         return joinedJar;
     }
 
-    private Path getRenamedJar(Path cache, Path joined, Path mappings) throws IOException {
+    private List<Path> getLibraries(Path cache, Version version) throws IOException {
+        if (version.libraries() == null)
+            return Collections.emptyList();
+
+        var ret = new ArrayList<Path>();
+        for (var lib : version.libraries()) {
+            if (lib.downloads() == null || !lib.downloads().containsKey("artifact"))
+                continue;
+            var dl = lib.downloads().get("artifact");
+            var target = cache.resolve(dl.path());
+
+            if (!Files.exists(target)) {
+                Files.createDirectories(target.getParent());
+                downloadFile(target, dl.url(), dl.sha1());
+            }
+
+            ret.add(target);
+        }
+        return ret;
+    }
+
+    private Path getRenamedJar(Path cache, Path joined, Path mappings, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
             // TODO: Renamer tool hash
-            // TODO: Add Libraries
             .put("joined", joined)
             .put("map", mappings);
+
+        for (var lib : libs) {
+            var relative = libCache.relativize(lib);
+            key.put(relative.toString(), lib);
+        }
+
         var keyF = cache.resolve("joined-renamed.jar.cache");
         var ret = cache.resolve("joined-renamed.jar");
 
         if (!Files.exists(ret) || !key.isValid(keyF)) {
             this.logger.accept("  Renaming joined jar");
-            Renamer.builder()
+            var builder = Renamer.builder()
                 .input(joined.toFile())
                 .output(ret.toFile())
                 .map(mappings.toFile())
-                // TODO: Add Libraries
                 .add(Transformer.parameterAnnotationFixerFactory())
                 .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
                 .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
                 .add(Transformer.recordFixerFactory())
                 .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
-                .logger(s -> {})
-                .build()
-            .run();
+                .logger(s -> {});
+            libs.forEach(l -> builder.lib(l.toFile()));
+            builder.build().run();
 
             key.write(keyF);
         }
@@ -447,19 +477,26 @@ public class Generator {
         return ret;
     }
 
-    private Path getDecompiledJar(Path cache, Path renamed) throws IOException {
+    private Path getDecompiledJar(Path cache, Path renamed, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
             // TODO: Decompiler Tool Hash
-            // TODO: Add Libraries
             .put("renamed", renamed);
+        for (var lib : libs) {
+            var relative = libCache.relativize(lib);
+            key.put(relative.toString(), lib);
+        }
+
         var keyF = cache.resolve("joined-decompiled.jar.cache");
         var ret = cache.resolve("joined-decompiled.jar");
 
         if (!Files.exists(ret) || !key.isValid(keyF)) {
             this.logger.accept("  Decompiling joined-renamed.jar");
+            var cfg = cache.resolve("joined-libraries.cfg");
+            writeLines(cfg, libs.stream().map(l -> "-e=" + l.toString()).toArray(String[]::new));
+
             ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
                 "-log=ERROR", // IFernflowerLogger.Severity
-                /*TODO: "-cfg", "{libraries}", */
+                "-cfg", cfg.toString(),
                 renamed.toString(),
                 ret.toString()
             });
@@ -485,15 +522,53 @@ public class Generator {
         Files.write(target, attrib.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static boolean copy(Version version, Path output, String key) throws IOException {
+    private boolean downloadFile(Path output, Version version, String key) throws IOException {
         Version.Download download = version.downloads().get(key);
         if (download == null)
             return false;
 
-        try (FileOutputStream out = new FileOutputStream(output.toFile())) { // TODO NIO-ize this, and make the download more robust
-            out.getChannel().transferFrom(Channels.newChannel(download.url().openStream()), 0, Long.MAX_VALUE);
-        }
+        return downloadFile(output, download.url(), download.sha1());
+    }
 
-        return true;
+    private boolean downloadFile(Path file, URL url, String sha1) throws IOException {
+        try {
+            this.logger.accept("  Downloading " + url.toString());
+            var connection = (HttpURLConnection)url.openConnection();
+            connection.setUseCaches(false);
+            connection.setDefaultUseCaches(false);
+            connection.setRequestProperty("Cache-Control", "no-store,max-age=0,no-cache");
+            connection.setRequestProperty("Expires", "0");
+            connection.setRequestProperty("Pragma", "no-cache");
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(5000);
+            connection.connect();
+
+            try (InputStream in = connection.getInputStream();
+                 OutputStream out = Files.newOutputStream(file);) {
+                copy(in, out);
+            }
+
+            if (sha1 != null) {
+                var actual = HashFunction.SHA1.hash(file);
+                if (!actual.equals(sha1)) {
+                    Files.delete(file);
+                    throw new IOException("Failed to download " + url.toString() + " Invalid Hash:\n" +
+                        "    Expected: " + sha1 + "\n" +
+                        "    Actual: " + actual);
+                }
+            }
+
+            return true;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void copy(InputStream input, OutputStream output) throws IOException {
+        byte[] buf = new byte[0x100];
+        int cnt = 0;
+        while ((cnt = input.read(buf, 0, buf.length)) != -1) {
+            output.write(buf, 0, cnt);
+        }
     }
 }
