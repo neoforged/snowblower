@@ -157,7 +157,7 @@ public class Generator {
         }
 
         var cache = this.output.resolve("build").resolve("cache");
-        var libs = cache.resolve("libraris");
+        var libs = cache.resolve("libraries");
         var main = src.resolve("main");
 
         for (int x = 0; x < toGenerate.size(); x++) {
