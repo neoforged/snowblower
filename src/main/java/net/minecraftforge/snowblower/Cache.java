@@ -21,6 +21,7 @@
 package net.minecraftforge.snowblower;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -52,6 +53,34 @@ public class Cache {
 
     public Cache put(String key, DependencyHashCache depCache) {
         data.put(key, depCache.getHash(key));
+        return this;
+    }
+
+    public Cache put(Class<?> codeClass) {
+        try {
+            Path folderPath = Path.of(codeClass.getProtectionDomain().getCodeSource().getLocation().toURI());
+            String[] packageParts = codeClass.getPackageName().split("\\.");
+
+            for (String packagePart : packageParts) {
+                folderPath = folderPath.resolve(packagePart);
+            }
+
+            String className = codeClass.getName().substring(codeClass.getName().lastIndexOf('.') + 1);
+
+            try (Stream<Path> walker = Files.list(folderPath)) {
+                // Includes inner classes
+                walker.filter(p -> p.getFileName().toString().startsWith(className) && Files.isRegularFile(p)).forEach(p -> {
+                    try {
+                        put(p.getFileName().toString(), p);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+            }
+        } catch (URISyntaxException | IOException e) {
+            throw new RuntimeException(e);
+        }
+
         return this;
     }
 
