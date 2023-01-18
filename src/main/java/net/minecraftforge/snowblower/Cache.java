@@ -59,7 +59,9 @@ public class Cache {
     public Cache put(Class<?> codeClass) {
         try {
             Path folderPath = Path.of(codeClass.getProtectionDomain().getCodeSource().getLocation().toURI());
-            String[] packageParts = codeClass.getPackageName().split("\\.");
+            String packageName = codeClass.getPackageName();
+            String[] packageParts = packageName.split("\\.");
+            String keyPrefix = packageName.replace('.', '/') + '/';
 
             for (String packagePart : packageParts) {
                 folderPath = folderPath.resolve(packagePart);
@@ -71,7 +73,7 @@ public class Cache {
                 // Includes inner classes
                 walker.filter(p -> p.getFileName().toString().startsWith(className) && Files.isRegularFile(p)).forEach(p -> {
                     try {
-                        put(p.getFileName().toString(), p);
+                        put(keyPrefix + p.getFileName().toString(), p);
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
