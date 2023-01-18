@@ -24,14 +24,16 @@ import javax.net.ssl.HttpsURLConnection;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URL;
+import java.util.List;
 import java.util.Map;
 
-public record Version(Map<String, Download> downloads) {
+public record Version(Map<String, Download> downloads, List<Library> libraries) {
     public static Version query(URL url) throws IOException {
         HttpsURLConnection urlConnection = (HttpsURLConnection) url.openConnection();
         urlConnection.connect();
         return VersionManifestV2.GSON.fromJson(new InputStreamReader(urlConnection.getInputStream()), Version.class);
     }
 
-    public record Download(URL url) {}
+    public record Download(String sha1, int size, URL url) {}
+    public record Library(Map<String, Download> downloads, String name) {}
 }

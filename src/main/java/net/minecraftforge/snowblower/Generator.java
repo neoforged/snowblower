@@ -52,12 +52,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -65,8 +62,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Generator {
-    private final File output;
-    private final File extraMappings;
+    private final Path output;
+    private final Path extraMappings;
     private final boolean startOver;
     private final MinecraftVersion startVer;
     private final MinecraftVersion targetVer;
@@ -75,8 +72,8 @@ public class Generator {
     private final Consumer<String> logger;
 
     public Generator(File output, File extraMappings, MinecraftVersion startVer, MinecraftVersion targetVer, String branchName, boolean startOver, boolean releasesOnly, Consumer<String> logger) {
-        this.output = output;
-        this.extraMappings = extraMappings;
+        this.output = output.toPath();
+        this.extraMappings = extraMappings == null ? null : extraMappings.toPath();
         this.startOver = startOver;
         this.startVer = startVer;
         this.targetVer = targetVer;
@@ -86,22 +83,22 @@ public class Generator {
     }
 
     public void run() throws IOException, GitAPIException {
-        try (Git git = Git.init().setDirectory(this.output).setInitialBranch(this.branchName).call()) {
+        try (Git git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(this.branchName).call()) {
             run(git);
         }
     }
 
     private void run(Git git) throws IOException, GitAPIException {
-        this.output.mkdirs();
+        Files.createDirectories(this.output);
 
         if (git.getRepository().resolve(Constants.HEAD) != null && git.getRepository().resolve(this.branchName) == null)
             git.checkout().setOrphan(true).setName(this.branchName).call();
 
-        Path src = this.output.toPath().resolve("src");
+        Path src = this.output.resolve("src");
 
         if (this.startOver) {
             deleteRecursive(src.toFile());
-            deleteInitalCommit(this.output.toPath());
+            deleteInitalCommit(this.output);
 
             git.checkout().setOrphan(true).setName("orphan_temp").call();
             git.branchDelete().setBranchNames(this.branchName).setForce(true).call();
@@ -157,16 +154,16 @@ public class Generator {
                 return; // We have nothing to do as the latest commit is outside our range of versions to generate
         }
 
-        Path cache = this.output.toPath().resolve("build").resolve("cache");
-        Path java = src.resolve("main").resolve("java");
+        var cache = this.output.resolve("build").resolve("cache");
+        var main = src.resolve("main");
 
         for (int x = 0; x < toGenerate.size(); x++) {
             var versionInfo = toGenerate.get(x);
-            File versionCache = cache.resolve(versionInfo.id().toString()).toFile();
-            versionCache.mkdirs();
+            var versionCache = cache.resolve(versionInfo.id().toString());
+            Files.createDirectories(versionCache);
 
-            this.logger.accept("[" + x + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
-            if (this.generate(java, versionCache, versionInfo, Version.query(versionInfo.url()))) {
+            this.logger.accept("[" + (x + 1) + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
+            if (this.generate(main, versionCache, versionInfo, Version.query(versionInfo.url()))) { //TODO: Cache version json, that requires etags
                 this.logger.accept("  Committing files");
                 git.add().addFilepattern("src").call(); // Add all new files, and update existing ones.
                 git.add().addFilepattern("src").setUpdate(true).call(); // Need this to remove all missing files.
@@ -183,61 +180,47 @@ public class Generator {
         }
     }
 
-    private boolean checkMetadata(Git git, boolean fresh, File root, MinecraftVersion start) throws IOException, GitAPIException {
-        Map<String, String> meta = new LinkedHashMap<>();
-        meta.put("Snowblower", "I should put the git hash, or version number, but that needs to wait till I teach this thing about its own version"); //TODO
-        meta.put("Start", start.toString());
+    private boolean checkMetadata(Git git, boolean fresh, Path root, MinecraftVersion start) throws IOException, GitAPIException {
+        var meta = new Cache().comment(
+            "Source files created by Snowblower",
+            "https://github.com/MinecraftForge/Snowblower")
+            .put("Snowblower", "{git hash}") // TODO Teach it about its own version/git hash
+            .put("Start", start.toString());
 
-        File file = new File(root, "Snowblower.txt");
-        if (!file.exists()) {
+        Path file = root.resolve("Snowblower.txt");
+        if (!Files.exists(file)) {
             if (!fresh) {
                 this.logger.accept("The starting commit on this branch does not match the provided starting version. Please choose a different branch or add the --start-over flag and try again.");
                 return false;
             } else {
                 // Create metadata file, eventually use it for cache busting?
-                StringBuilder output = new StringBuilder();
-                output.append("Source files creates by Snowblower\n");
-                output.append("https://github.com/MinecraftForge/Snowblower\n\n");
-                meta.forEach((k,v) -> output.append(k).append(": ").append(v).append('\n'));
-                Files.write(file.toPath(), output.toString().getBytes(StandardCharsets.UTF_8));
-                git.add().addFilepattern("Snowblower.txt").call();
+                meta.write(file);
+                add(git, file);
 
                 // Create some git metadata files to make life sane
-                String attrib = Stream.of(
+                var attrs = root.resolve(".gitattributes");
+                writeLines(attrs,
                     "* text eol=lf",
                     "*.java text eol=lf",
+                    "*.json text eol=lf",
+                    "*.xml text eol=lf",
+                    "*.bin binary",
                     "*.png binary",
-                    "*.gif binary"
-                ).collect(Collectors.joining("\n"));
-                Files.write(new File(root, ".gitattributes").toPath(), attrib.getBytes(StandardCharsets.UTF_8));
-                git.add().addFilepattern(".gitattributes").call();
+                    "*.gif binary",
+                    "*.nbt binary");
+                add(git, attrs);
 
                 // Create some git metadata files to make life sane
-                String ignore = Stream.of(
-                    "/build"
-                ).collect(Collectors.joining("\n"));
-                Files.write(new File(root, ".gitignore").toPath(), ignore.getBytes(StandardCharsets.UTF_8));
-                git.add().addFilepattern(".gitignore").call();
+                var ignore = root.resolve(".gitignore");
+                writeLines(ignore, "/build");
+                add(git, ignore);
 
                 commit(git, "Init");
 
                 return true;
             }
         } else {
-            Map<String, String> existing = new HashMap<>();
-            try (Stream<String> stream = Files.lines(file.toPath())) {
-                stream.forEach(l -> {
-                    int idx = l.indexOf(' ');
-                    if (idx <= 1 || l.charAt(idx - 1) != ':')
-                        return;
-
-                    String key = l.substring(0, idx - 1);
-                    String value = l.substring(idx + 1);
-                    existing.put(key, value);
-                });
-            }
-
-            if (!existing.equals(meta)) {
+            if (!meta.isValid(file)) {
                 this.logger.accept("The starting commit on this branch does not match the provided starting version. Please choose a different branch or add the --start-over flag and try again.");
                 return false;
             }
@@ -255,97 +238,43 @@ public class Generator {
             .call();
     }
 
-    private boolean generate(Path src, File cache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
-        IMappingFile clientMojToObj = downloadMappings(cache, versionInfo, version, "client");
+    private void add(Git git, Path file) throws GitAPIException {
+        var root = git.getRepository().getDirectory().getParentFile().toPath();
+        var path = root.relativize(file);
+        git.add().addFilepattern(path.toString()).call();
+    }
 
-        if (clientMojToObj == null) {
-            this.logger.accept("  Client mappings not found, skipping version");
+    private boolean generate(Path src, Path cache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
+        var mappings = getMergedMappings(cache, versionInfo, version);
+        if (mappings == null)
             return false;
-        }
 
-        IMappingFile serverMojToObj = downloadMappings(cache, versionInfo, version, "server");
-
-        if (serverMojToObj == null) {
-            this.logger.accept("  Server mappings not found, skipping version");
-            return false;
-        }
-
-        if (!canMerge(clientMojToObj, serverMojToObj))
-            throw new IllegalStateException("Client mappings for " + versionInfo.id() + " are not a strict superset of the server mappings.");
-
-        File clientJar = new File(cache, "client.jar");
-        if (!clientJar.exists()) {
-            this.logger.accept("  Downloading client jar");
-            if (!copy(version, clientJar, "client"))
-                throw new IllegalStateException();
-        }
-
-        File serverJar = new File(cache, "server.jar");
-        if (!serverJar.exists()) {
-            this.logger.accept("  Downloading server jar");
-            if (!copy(version, serverJar, "server"))
-                throw new IllegalStateException();
-        }
-
-        File joinedJar = new File(cache, "joined.jar");
-
-        if (!joinedJar.exists()) {
-            this.logger.accept("  Merging client and server jars");
-            Merger merger = new Merger(clientJar, serverJar, joinedJar);
-            // Whitelist only Mojang classes to process
-            clientMojToObj.getClasses().forEach(cls -> merger.whitelist(cls.getMapped()));
-            merger.annotate(AnnotationVersion.API, true);
-            merger.keepData();
-            merger.skipMeta();
-            merger.process();
-        }
-
-        File renamedJar = new File(cache, "joined-renamed.jar");
-        File clientMappingsReversed = new File(cache, "client_mappings_reversed.tsrg");
-        if (!clientMappingsReversed.exists())
-            clientMojToObj.write(clientMappingsReversed.toPath(), IMappingFile.Format.TSRG2, true);
-
-        if (!renamedJar.exists()) {
-            this.logger.accept("  Renaming joined jar");
-            Renamer.builder()
-                    .input(joinedJar)
-                    .output(renamedJar)
-                    .map(clientMappingsReversed)
-                    .add(Transformer.parameterAnnotationFixerFactory())
-                    .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
-                    .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
-                    .add(Transformer.recordFixerFactory())
-                    .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
-                    .logger(s -> {}).build().run();
-        }
-
-        File decompiledJar = new File(cache, "joined-decompiled.jar");
-
-        if (!decompiledJar.exists()) {
-            this.logger.accept("  Decompiling joined jar");
-            ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
-                    "-log=ERROR", // IFernflowerLogger.Severity
-                    /*"-cfg", "{libraries}", */
-                    renamedJar.toString(), decompiledJar.toString()});
-        }
+        var joined = getJoinedJar(cache, version, mappings);
+        var renamed = getRenamedJar(cache, joined, mappings);
+        var decomped = getDecompiledJar(cache, renamed);
 
         Set<Path> existingFiles = Files.exists(src) ? Files.walk(src).filter(Files::isRegularFile).collect(Collectors.toSet()) : new HashSet<>();
+        var java = src.resolve("java");
+        var resources = src.resolve("resources");
 
-        try (FileSystem zipFs = FileSystems.newFileSystem(decompiledJar.toPath())) {
-            Path rootPath = zipFs.getPath("/");
-            try (Stream<Path> walker = Files.walk(rootPath)) {
-                walker.filter(p -> p.toString().endsWith(".java") && Files.isRegularFile(p)).forEach(p -> {
+        try (FileSystem zipFs = FileSystems.newFileSystem(decomped)) {
+            var root = zipFs.getPath("/");
+            try (Stream<Path> walker = Files.walk(root)) {
+                walker.filter(Files::isRegularFile).forEach(p -> {
                     try {
-                        Path target = src.resolve(rootPath.relativize(p).toString());
+                        var relative = root.relativize(p);
+                        var target = (p.toString().endsWith(".java") ? java : resources).resolve(relative.toString());
+
                         if (existingFiles.remove(target)) {
-                            String existing = HashFunction.MD5.hash(target);
-                            String created = HashFunction.MD5.hash(p);
+                            var existing = HashFunction.MD5.hash(target);
+                            var created = HashFunction.MD5.hash(p);
                             if (!existing.equals(created))
                                 Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
                         } else {
                             Files.createDirectories(target.getParent());
                             Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
                         }
+
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
@@ -364,17 +293,17 @@ public class Generator {
         return true;
     }
 
-    private IMappingFile downloadMappings(File cache, VersionManifestV2.VersionInfo versionInfo, Version version, String type) throws IOException {
-        File mappings = new File(cache, type + "_mappings.txt");
+    private IMappingFile downloadMappings(Path cache, VersionManifestV2.VersionInfo versionInfo, Version version, String type) throws IOException {
+        var mappings = cache.resolve(type + "_mappings.txt");
 
-        if (!mappings.exists()) {
+        if (!Files.exists(mappings)) {
             this.logger.accept("  Downloading " + type + " mappings");
             boolean copiedFromExtra = false;
 
             if (this.extraMappings != null) {
-                Path extraMap = this.extraMappings.toPath().resolve(versionInfo.type()).resolve(versionInfo.id().toString()).resolve("maps").resolve(type + ".txt");
+                Path extraMap = this.extraMappings.resolve(versionInfo.type()).resolve(versionInfo.id().toString()).resolve("maps").resolve(type + ".txt");
                 if (Files.exists(extraMap)) {
-                    Files.copy(extraMap, mappings.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    Files.copy(extraMap, mappings, StandardCopyOption.REPLACE_EXISTING);
                     copiedFromExtra = true;
                 }
             }
@@ -383,7 +312,41 @@ public class Generator {
                 return null;
         }
 
-        return IMappingFile.load(mappings);
+        try (var in = Files.newInputStream(mappings)) {
+            return IMappingFile.load(in);
+        }
+    }
+
+    private Path getMergedMappings(Path cache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
+        var clientMojToObj = downloadMappings(cache, versionInfo, version, "client");
+
+        if (clientMojToObj == null) {
+            this.logger.accept("  Client mappings not found, skipping version");
+            return null;
+        }
+
+        var serverMojToObj = downloadMappings(cache, versionInfo, version, "server");
+
+        if (serverMojToObj == null) {
+            this.logger.accept("  Server mappings not found, skipping version");
+            return null;
+        }
+
+        if (!canMerge(clientMojToObj, serverMojToObj))
+            throw new IllegalStateException("Client mappings for " + versionInfo.id() + " are not a strict superset of the server mappings.");
+
+        var key = new Cache()
+            .put("client", cache.resolve("client_mappings.txt"))
+            .put("server", cache.resolve("server_mappings.txt"));
+        var keyF = cache.resolve("obf_to_moj.tsrg.cache");
+        var ret = cache.resolve("obf_to_moj.tsrg");
+
+        if (!Files.exists(ret) || !key.isValid(keyF)) {
+            clientMojToObj.write(ret, IMappingFile.Format.TSRG2, true);
+            key.write(keyF);
+        }
+
+        return ret;
     }
 
     // https://github.com/LexManos/MappingToy/blob/master/src/main/java/net/minecraftforge/lex/mappingtoy/MappingToy.java#L271
@@ -413,6 +376,99 @@ public class Generator {
         return true;
     }
 
+    private Path getJoinedJar(Path cache, Version version, Path mappings) throws IOException {
+        var clientJar = cache.resolve("client.jar");
+        if (!Files.exists(clientJar)) { // TODO: Check hashes
+            this.logger.accept("  Downloading client jar");
+            if (!copy(version, clientJar, "client"))
+                throw new IllegalStateException("Failed to download client jar");
+        }
+
+        var serverJar = cache.resolve("server.jar");
+        if (!Files.exists(serverJar)) { // TODO: Check hashes
+            this.logger.accept("  Downloading server jar");
+            if (!copy(version, serverJar, "server"))
+                throw new IllegalStateException("Failed to download dedicated server jar");
+        }
+
+        var key = new Cache()
+            // TODO: Merger Library Hash
+            .put("client", clientJar)
+            .put("server", serverJar)
+            .put("map", mappings);
+        var keyF = cache.resolve("joined.jar.cache");
+        var joinedJar = cache.resolve("joined.jar");
+
+        if (!Files.exists(joinedJar) || !key.isValid(keyF)) {
+            this.logger.accept("  Merging client and server jars");
+            Merger merger = new Merger(clientJar.toFile(), serverJar.toFile(), joinedJar.toFile());
+            // Whitelist only Mojang classes to process
+            var map = IMappingFile.load(mappings.toFile());
+            map.getClasses().forEach(cls -> merger.whitelist(cls.getOriginal()));
+            merger.annotate(AnnotationVersion.API, true);
+            merger.keepData();
+            merger.skipMeta();
+            merger.process();
+
+            key.write(keyF);
+        }
+
+        return joinedJar;
+    }
+
+    private Path getRenamedJar(Path cache, Path joined, Path mappings) throws IOException {
+        var key = new Cache()
+            // TODO: Renamer tool hash
+            // TODO: Add Libraries
+            .put("joined", joined)
+            .put("map", mappings);
+        var keyF = cache.resolve("joined-renamed.jar.cache");
+        var ret = cache.resolve("joined-renamed.jar");
+
+        if (!Files.exists(ret) || !key.isValid(keyF)) {
+            this.logger.accept("  Renaming joined jar");
+            Renamer.builder()
+                .input(joined.toFile())
+                .output(ret.toFile())
+                .map(mappings.toFile())
+                // TODO: Add Libraries
+                .add(Transformer.parameterAnnotationFixerFactory())
+                .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
+                .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
+                .add(Transformer.recordFixerFactory())
+                .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
+                .logger(s -> {})
+                .build()
+            .run();
+
+            key.write(keyF);
+        }
+
+        return ret;
+    }
+
+    private Path getDecompiledJar(Path cache, Path renamed) throws IOException {
+        var key = new Cache()
+            // TODO: Decompiler Tool Hash
+            // TODO: Add Libraries
+            .put("renamed", renamed);
+        var keyF = cache.resolve("joined-decompiled.jar.cache");
+        var ret = cache.resolve("joined-decompiled.jar");
+
+        if (!Files.exists(ret) || !key.isValid(keyF)) {
+            this.logger.accept("  Decompiling joined-renamed.jar");
+            ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
+                "-log=ERROR", // IFernflowerLogger.Severity
+                /*TODO: "-cfg", "{libraries}", */
+                renamed.toString(),
+                ret.toString()
+            });
+
+            key.write(keyF);
+        }
+        return ret;
+    }
+
     private static void deleteRecursive(File dir) throws IOException {
         if (!dir.exists())
             return;
@@ -424,12 +480,17 @@ public class Generator {
         }
     }
 
-    private static boolean copy(Version version, File output, String key) throws IOException {
+    private static void writeLines(Path target, String... lines) throws IOException {
+        String attrib = Stream.of(lines).collect(Collectors.joining("\n"));
+        Files.write(target, attrib.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static boolean copy(Version version, Path output, String key) throws IOException {
         Version.Download download = version.downloads().get(key);
         if (download == null)
             return false;
 
-        try (FileOutputStream out = new FileOutputStream(output)) {
+        try (FileOutputStream out = new FileOutputStream(output.toFile())) { // TODO NIO-ize this, and make the download more robust
             out.getChannel().transferFrom(Channels.newChannel(download.url().openStream()), 0, Long.MAX_VALUE);
         }
 
