@@ -38,11 +38,11 @@ import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -64,6 +64,7 @@ import java.util.stream.Stream;
 
 public class Generator {
     private final Path output;
+    private final Path cache;
     private final Path extraMappings;
     private final boolean startOver;
     private final MinecraftVersion startVer;
@@ -73,10 +74,11 @@ public class Generator {
     private final DependencyHashCache depCache;
     private final Consumer<String> logger;
 
-    public Generator(File output, File extraMappings, MinecraftVersion startVer, MinecraftVersion targetVer, String branchName, boolean startOver, boolean releasesOnly,
+    public Generator(Path output, Path cache, Path extraMappings, MinecraftVersion startVer, MinecraftVersion targetVer, String branchName, boolean startOver, boolean releasesOnly,
             DependencyHashCache depCache, Consumer<String> logger) {
-        this.output = output.toPath();
-        this.extraMappings = extraMappings == null ? null : extraMappings.toPath();
+        this.output = output;
+        this.cache = cache;
+        this.extraMappings = extraMappings;
         this.startOver = startOver;
         this.startVer = startVer;
         this.targetVer = targetVer;
@@ -87,45 +89,66 @@ public class Generator {
     }
 
     public void run() throws IOException, GitAPIException {
-        try (Git git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(this.branchName).call()) {
+        try (Git git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(this.branchName == null ? "main" : this.branchName).call()) {
             run(git);
         }
     }
 
     private void run(Git git) throws IOException, GitAPIException {
         Files.createDirectories(this.output);
+        boolean fresh = this.startOver;
+        String branch = this.branchName;
+        String currentBranch = git.getRepository().getBranch();
+        if (branch == null) {
+            if (currentBranch == null)
+                throw new IllegalStateException("Git repository has no HEAD reference");
+            branch = currentBranch;
+        }
 
-        if (git.getRepository().resolve(Constants.HEAD) != null && git.getRepository().resolve(this.branchName) == null)
-            git.checkout().setOrphan(true).setName(this.branchName).call();
+        if (!branch.equals(currentBranch) && git.getRepository().resolve(Constants.HEAD) != null) {
+            boolean orphan = git.getRepository().resolve(branch) == null;
+            git.checkout().setOrphan(orphan).setName(branch).call();
+            if (orphan)
+                fresh = true;
+        }
 
         Path src = this.output.resolve("src");
 
-        if (this.startOver) {
-            deleteRecursive(src.toFile());
+        if (fresh) {
+            deleteRecursive(src);
             deleteInitalCommit(this.output);
 
             git.checkout().setOrphan(true).setName("orphan_temp").call();
-            git.branchDelete().setBranchNames(this.branchName).setForce(true).call();
-            git.checkout().setOrphan(true).setName(this.branchName).call();
+            git.branchDelete().setBranchNames(branch).setForce(true).call();
+            git.checkout().setOrphan(true).setName(branch).call();
             git.reset().call();
         }
 
         ObjectId headId = git.getRepository().resolve(Constants.HEAD);
         Iterator<RevCommit> iterator = headId == null ? null : git.log().add(headId).call().iterator();
-        RevCommit latestCommit = null;
+        RevCommit latestGenCommit = null;
 
         if (iterator != null && iterator.hasNext()) {
-            latestCommit = iterator.next();
+            while (iterator.hasNext()) {
+                latestGenCommit = iterator.next();
+                if (isSnowblowerCommit(latestGenCommit))
+                    break;
+            }
         }
 
-        if (!checkMetadata(git, this.startOver, this.output, this.startVer))
+        if (!checkMetadata(git, fresh, this.output, this.startVer))
             return;
 
         VersionManifestV2.VersionInfo[] versions = VersionManifestV2.query().versions();
         int startIdx = -1;
         int endIdx = -1;
         for (int i = 0; i < versions.length; i++) {
-            MinecraftVersion ver = versions[i].id();
+            VersionManifestV2.VersionInfo versionInfo = versions[i];
+            MinecraftVersion ver = versionInfo.id();
+            if (endIdx == -1 && this.targetVer == null && (!this.releasesOnly || versionInfo.type().equals("release"))) {
+                // Null target version == latest version (while still respecting releasesOnly)
+                endIdx = i;
+            }
             if (ver.equals(this.targetVer)) {
                 endIdx = i;
             }
@@ -143,8 +166,8 @@ public class Generator {
             toGenerate.removeIf(v -> !v.type().equals("release"));
         Collections.reverse(toGenerate);
 
-        if (latestCommit != null) {
-            String search = latestCommit.getShortMessage();
+        if (latestGenCommit != null) {
+            String search = latestGenCommit.getShortMessage();
             boolean found = false;
             for (int i = 0; i < toGenerate.size(); i++) {
                 if (toGenerate.get(i).id().toString().equals(search)) {
@@ -158,13 +181,12 @@ public class Generator {
                 return; // We have nothing to do as the latest commit is outside our range of versions to generate
         }
 
-        var cache = this.output.resolve("build").resolve("cache");
-        var libs = cache.resolve("libraries");
+        var libs = this.cache.resolve("libraries");
         var main = src.resolve("main");
 
         for (int x = 0; x < toGenerate.size(); x++) {
             var versionInfo = toGenerate.get(x);
-            var versionCache = cache.resolve(versionInfo.id().toString());
+            var versionCache = this.cache.resolve(versionInfo.id().toString());
             Files.createDirectories(versionCache);
 
             this.logger.accept("[" + (x + 1) + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
@@ -179,33 +201,60 @@ public class Generator {
     }
 
     private void deleteInitalCommit(Path root) throws IOException {
-        for (String file : new String[] {"Snowblower.txt", ".gitattributes", ".gitignore"}) {
+        for (String file : new String[]{"Snowblower.txt", ".gitattributes", ".gitignore"}) {
             Path target = root.resolve(file);
             if (Files.exists(target))
                 Files.delete(target);
         }
     }
 
+    private static String getGitCommitHash() {
+        String implVersion = Generator.class.getPackage().getImplementationVersion();
+        if (implVersion != null)
+            return implVersion.substring(implVersion.indexOf('(') + 1, implVersion.indexOf(')'));
+
+        try {
+            // This should never be a jar if the implementation version is missing
+            Path folderPath = Path.of(Generator.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+
+            while (!Files.exists(folderPath.resolve(".git"))) {
+                folderPath = folderPath.getParent();
+                if (folderPath == null)
+                    return "unknown";
+            }
+
+            try (Git sourceGit = Git.open(folderPath.toFile())) {
+                ObjectId headId = sourceGit.getRepository().resolve(Constants.HEAD);
+                return headId == null ? "unknown" : headId.getName();
+            }
+        } catch (URISyntaxException | IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private boolean checkMetadata(Git git, boolean fresh, Path root, MinecraftVersion start) throws IOException, GitAPIException {
         var meta = new Cache().comment(
-            "Source files created by Snowblower",
-            "https://github.com/MinecraftForge/Snowblower")
-            .put("Snowblower", "{git hash}") // TODO Teach it about its own version/git hash
-            .put("Start", start.toString());
+                        "Source files created by Snowblower",
+                        "https://github.com/MinecraftForge/Snowblower")
+                .put("Snowblower", getGitCommitHash())
+                .put("Start", start.toString());
 
-        Path file = root.resolve("Snowblower.txt");
-        if (!Files.exists(file)) {
-            if (!fresh) {
-                this.logger.accept("The starting commit on this branch does not match the provided starting version. Please choose a different branch or add the --start-over flag and try again.");
-                return false;
-            } else {
-                // Create metadata file, eventually use it for cache busting?
-                meta.write(file);
-                add(git, file);
+        Path metaPath = root.resolve("Snowblower.txt");
+        if (!fresh && !meta.isValid(metaPath)) {
+            this.logger.accept("The starting commit on this branch does not have matching metadata.");
+            this.logger.accept("This could be due to a different Snowblower version or a different starting Minecraft version.");
+            this.logger.accept("Please choose a different branch with --branch or add the --start-over flag and try again.");
+            return false;
+        }
 
-                // Create some git metadata files to make life sane
-                var attrs = root.resolve(".gitattributes");
-                writeLines(attrs,
+        if (fresh || !Files.exists(metaPath)) {
+            // Create metadata file
+            meta.write(metaPath);
+            add(git, metaPath);
+
+            // Create some git metadata files to make life sane
+            var attrs = root.resolve(".gitattributes");
+            writeLines(attrs,
                     "* text eol=lf",
                     "*.java text eol=lf",
                     "*.json text eol=lf",
@@ -214,34 +263,43 @@ public class Generator {
                     "*.png binary",
                     "*.gif binary",
                     "*.nbt binary");
-                add(git, attrs);
+            add(git, attrs);
 
-                // Create some git metadata files to make life sane
-                var ignore = root.resolve(".gitignore");
-                writeLines(ignore, "/build");
-                add(git, ignore);
+            var ignore = root.resolve(".gitignore");
+            writeLines(ignore,
+                    ".gradle",
+                    "build",
+                    "",
+                    "# Eclipse",
+                    ".settings",
+                    ".metadata",
+                    ".classpath",
+                    ".project",
+                    "bin",
+                    "",
+                    "# IntelliJ",
+                    "out",
+                    "*.idea",
+                    "*.iml");
+            add(git, ignore);
 
-                commit(git, "Init");
-
-                return true;
-            }
-        } else {
-            if (!meta.isValid(file)) {
-                this.logger.accept("The starting commit on this branch does not match the provided starting version. Please choose a different branch or add the --start-over flag and try again.");
-                return false;
-            }
-            return true;
+            commit(git, "Initial commit");
         }
 
+        return true;
     }
 
     private void commit(Git git, String message) throws GitAPIException {
         git.commit()
-            .setMessage(message)
-            .setAuthor("SnowBlower", "snow@blower.com")
-            .setCommitter("SnowBlower", "snow@blower.com")
-            .setSign(false)
-            .call();
+                .setMessage(message)
+                .setAuthor("SnowBlower", "snow@blower.com")
+                .setCommitter("SnowBlower", "snow@blower.com")
+                .setSign(false)
+                .call();
+    }
+
+    private static boolean isSnowblowerCommit(RevCommit commit) {
+        return commit.getCommitterIdent().getName().equalsIgnoreCase("SnowBlower");
     }
 
     private void add(Git git, Path file) throws GitAPIException {
@@ -350,8 +408,8 @@ public class Generator {
             throw new IllegalStateException("Client mappings for " + versionInfo.id() + " are not a strict superset of the server mappings.");
 
         var key = new Cache()
-            .put("client", cache.resolve("client_mappings.txt"))
-            .put("server", cache.resolve("server_mappings.txt"));
+                .put("client", cache.resolve("client_mappings.txt"))
+                .put("server", cache.resolve("server_mappings.txt"));
         var keyF = cache.resolve("obf_to_moj.tsrg.cache");
         var ret = cache.resolve("obf_to_moj.tsrg");
 
@@ -390,26 +448,37 @@ public class Generator {
         return true;
     }
 
-    private Path getJoinedJar(Path cache, Version version, Path mappings) throws IOException {
-        var clientJar = cache.resolve("client.jar");
-        if (!Files.exists(clientJar)) { // TODO: Check hashes
-            this.logger.accept("  Downloading client jar");
-            if (!downloadFile(clientJar, version, "client"))
-                throw new IllegalStateException("Failed to download client jar");
+    private Path getJar(String type, Path cache, Version version) throws IOException {
+        var jar = cache.resolve(type + ".jar");
+        var jarCachePath = cache.resolve(type + ".jar.cache");
+        Cache jarCache = new Cache();
+        boolean download = true;
+
+        if (Files.exists(jar)) {
+            jarCache.put(type, jar);
+            download = !jarCache.isValid(jarCachePath);
         }
 
-        var serverJar = cache.resolve("server.jar");
-        if (!Files.exists(serverJar)) { // TODO: Check hashes
-            this.logger.accept("  Downloading server jar");
-            if (!downloadFile(serverJar, version, "server"))
-                throw new IllegalStateException("Failed to download dedicated server jar");
+        if (download) {
+            this.logger.accept("  Downloading " + type + " jar");
+            if (!downloadFile(jar, version, type))
+                throw new IllegalStateException("Failed to download " + type + " jar");
+            jarCache.put(type, jar);
+            jarCache.write(jarCachePath);
         }
+
+        return jar;
+    }
+
+    private Path getJoinedJar(Path cache, Version version, Path mappings) throws IOException {
+        var clientJar = getJar("client", cache, version);
+        var serverJar = getJar("server", cache, version);
 
         var key = new Cache()
-            .put(Tools.MERGETOOL, this.depCache)
-            .put("client", clientJar)
-            .put("server", serverJar)
-            .put("map", mappings);
+                .put(Tools.MERGETOOL, this.depCache)
+                .put("client", clientJar)
+                .put("server", serverJar)
+                .put("map", mappings);
         var keyF = cache.resolve("joined.jar.cache");
         var joinedJar = cache.resolve("joined.jar");
 
@@ -453,9 +522,9 @@ public class Generator {
 
     private Path getRenamedJar(Path cache, Path joined, Path mappings, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
-            .put(Tools.FART, this.depCache)
-            .put("joined", joined)
-            .put("map", mappings);
+                .put(Tools.FART, this.depCache)
+                .put("joined", joined)
+                .put("map", mappings);
 
         for (var lib : libs) {
             var relative = libCache.relativize(lib);
@@ -468,15 +537,15 @@ public class Generator {
         if (!Files.exists(ret) || !key.isValid(keyF)) {
             this.logger.accept("  Renaming joined jar");
             var builder = Renamer.builder()
-                .input(joined.toFile())
-                .output(ret.toFile())
-                .map(mappings.toFile())
-                .add(Transformer.parameterAnnotationFixerFactory())
-                .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
-                .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
-                .add(Transformer.recordFixerFactory())
-                .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
-                .logger(s -> {});
+                    .input(joined.toFile())
+                    .output(ret.toFile())
+                    .map(mappings.toFile())
+                    .add(Transformer.parameterAnnotationFixerFactory())
+                    .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
+                    .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
+                    .add(Transformer.recordFixerFactory())
+                    .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
+                    .logger(s -> {});
             libs.forEach(l -> builder.lib(l.toFile()));
             builder.build().run();
 
@@ -488,8 +557,12 @@ public class Generator {
 
     private Path getDecompiledJar(Path cache, Path renamed, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
-            .put(Tools.FORGEFLOWER, this.depCache)
-            .put("renamed", renamed);
+                .put(Tools.FORGEFLOWER, this.depCache)
+                .put("renamed", renamed);
+
+        String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1"};
+        key.put("decompileArgs", String.join(" ", decompileArgs));
+
         for (var lib : libs) {
             var relative = libCache.relativize(lib);
             key.put(relative.toString(), lib);
@@ -503,26 +576,30 @@ public class Generator {
             var cfg = cache.resolve("joined-libraries.cfg");
             writeLines(cfg, libs.stream().map(l -> "-e=" + l.toString()).toArray(String[]::new));
 
-            ConsoleDecompiler.main(new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1",
-                "-log=ERROR", // IFernflowerLogger.Severity
-                "-cfg", cfg.toString(),
-                renamed.toString(),
-                ret.toString()
-            });
+            ConsoleDecompiler.main(Stream.concat(Arrays.stream(decompileArgs), Stream.of(
+                    "-log=ERROR", // IFernflowerLogger.Severity
+                    "-cfg", cfg.toString(),
+                    renamed.toString(),
+                    ret.toString()
+            )).toArray(String[]::new));
 
             key.write(keyF);
         }
         return ret;
     }
 
-    private static void deleteRecursive(File dir) throws IOException {
-        if (!dir.exists())
+    private static void deleteRecursive(Path dir) throws IOException {
+        if (!Files.exists(dir))
             return;
 
-        try (Stream<Path> walker = Files.walk(dir.toPath())) {
-            walker.sorted(Comparator.reverseOrder())
-                    .map(Path::toFile)
-                    .forEach(File::delete);
+        try (Stream<Path> walker = Files.walk(dir)) {
+            walker.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
         }
     }
 
@@ -541,7 +618,7 @@ public class Generator {
 
     private boolean downloadFile(Path file, URL url, String sha1) throws IOException {
         this.logger.accept("  Downloading " + url.toString());
-        var connection = (HttpURLConnection)url.openConnection();
+        var connection = (HttpURLConnection) url.openConnection();
         connection.setUseCaches(false);
         connection.setDefaultUseCaches(false);
         connection.setRequestProperty("Cache-Control", "no-store,max-age=0,no-cache");
@@ -552,7 +629,7 @@ public class Generator {
         connection.connect();
 
         try (InputStream in = connection.getInputStream();
-             OutputStream out = Files.newOutputStream(file)) {
+                OutputStream out = Files.newOutputStream(file)) {
             copy(in, out);
         }
 
@@ -561,8 +638,8 @@ public class Generator {
             if (!actual.equals(sha1)) {
                 Files.delete(file);
                 throw new IOException("Failed to download " + url + " Invalid Hash:\n" +
-                    "    Expected: " + sha1 + "\n" +
-                    "    Actual: " + actual);
+                        "    Expected: " + sha1 + "\n" +
+                        "    Actual: " + actual);
             }
         }
 

@@ -61,7 +61,8 @@ tasks.idea.dependsOn('generateDependencyHashes')
 jar {
     manifest {
         attributes([
-                'Main-Class': 'net.minecraftforge.snowblower.Main'
+                'Main-Class': 'net.minecraftforge.snowblower.Main',
+                'Implementation-Version': "${project.version} (${gradleutils.gitInfo.commit})"
         ])
     }
 }
