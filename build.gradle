@@ -64,8 +64,8 @@ tasks.idea.dependsOn('generateDependencyHashes')
 jar {
     manifest {
         attributes([
-                'Main-Class': 'net.minecraftforge.snowblower.Main',
-                'Implementation-Version': "${project.version} (${gradleutils.gitInfo.commit})"
+            'Main-Class': 'net.minecraftforge.snowblower.Main',
+            'Implementation-Version': "${project.version} (${gradleutils.gitInfo.commit})"
         ])
     }
 }
@@ -83,11 +83,7 @@ artifacts {
 
 license {
     header = file('HEADER')
-    ext {
-        name = 'Snowblower'
-        year = 2023
-        fullname = 'Forge Development LLC'
-    }
+    ext.fullname = 'Forge Development LLC'
     exclude '**/*.properties'
 }
 

@@ -4,10 +4,6 @@ plugins {
 
 license {
     header = new File(projectDir.parentFile, 'HEADER')
-    ext {
-        name = 'Snowblower'
-        year = 2023
-        fullname = 'Forge Development LLC'
-    }
+    ext.fullname = 'Forge Development LLC'
     exclude '**/*.properties'
 }
