@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 
-package net.minecraftforge.snowblower;
+package net.minecraftforge.snowblower.util;
 
 public class Tools {
     public static final String SRGUTILS = "net.minecraftforge:srgutils";

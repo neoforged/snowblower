@@ -9,6 +9,8 @@ import joptsimple.OptionException;
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 import joptsimple.OptionSpec;
+import net.minecraftforge.snowblower.util.DependencyHashCache;
+import net.minecraftforge.snowblower.util.Util;
 import net.minecraftforge.srgutils.MinecraftVersion;
 import org.eclipse.jgit.api.errors.GitAPIException;
 

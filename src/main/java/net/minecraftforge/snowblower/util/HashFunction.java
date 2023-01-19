@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 
-package net.minecraftforge.snowblower;
+package net.minecraftforge.snowblower.util;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -27,7 +27,7 @@ import java.util.Locale;
  * <p>This class offers a cleaner method to retrieve an instance of these hashing functions, without having to wrap in a
  * {@code try}-{@code catch} block.</p>
  */
-enum HashFunction {
+public enum HashFunction {
     MD5("md5", 32),
     SHA1("SHA-1", 40),
     SHA256("SHA-256", 64),

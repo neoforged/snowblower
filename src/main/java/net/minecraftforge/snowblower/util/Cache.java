@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 
-package net.minecraftforge.snowblower;
+package net.minecraftforge.snowblower.util;
 
 import java.io.IOException;
 import java.net.URISyntaxException;

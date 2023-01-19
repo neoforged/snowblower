@@ -14,6 +14,11 @@ import net.minecraftforge.mergetool.AnnotationVersion;
 import net.minecraftforge.mergetool.Merger;
 import net.minecraftforge.snowblower.data.Version;
 import net.minecraftforge.snowblower.data.VersionManifestV2;
+import net.minecraftforge.snowblower.util.Cache;
+import net.minecraftforge.snowblower.util.DependencyHashCache;
+import net.minecraftforge.snowblower.util.HashFunction;
+import net.minecraftforge.snowblower.util.Tools;
+import net.minecraftforge.snowblower.util.Util;
 import net.minecraftforge.srgutils.IMappingFile;
 import net.minecraftforge.srgutils.MinecraftVersion;
 import org.eclipse.jgit.api.AddCommand;
@@ -27,11 +32,7 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.URISyntaxException;
-import java.net.URL;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
@@ -230,10 +231,10 @@ public class Generator {
 
     private boolean checkMetadata(Git git, boolean fresh, Path root, MinecraftVersion start) throws IOException, GitAPIException {
         var meta = new Cache().comment(
-                        "Source files created by Snowblower",
-                        "https://github.com/MinecraftForge/Snowblower")
-                .put("Snowblower", getGitCommitHash())
-                .put("Start", start.toString());
+            "Source files created by Snowblower",
+            "https://github.com/MinecraftForge/Snowblower")
+            .put("Snowblower", getGitCommitHash())
+            .put("Start", start.toString());
 
         Path metaPath = root.resolve("Snowblower.txt");
         if (!fresh && !meta.isValid(metaPath)) {
@@ -250,33 +251,35 @@ public class Generator {
 
             // Create some git metadata files to make life sane
             var attrs = root.resolve(".gitattributes");
-            writeLines(attrs,
-                    "* text eol=lf",
-                    "*.java text eol=lf",
-                    "*.json text eol=lf",
-                    "*.xml text eol=lf",
-                    "*.bin binary",
-                    "*.png binary",
-                    "*.gif binary",
-                    "*.nbt binary");
+            Util.writeLines(attrs,
+                "* text eol=lf",
+                "*.java text eol=lf",
+                "*.json text eol=lf",
+                "*.xml text eol=lf",
+                "*.bin binary",
+                "*.png binary",
+                "*.gif binary",
+                "*.nbt binary"
+            );
             add(git, attrs);
 
             var ignore = root.resolve(".gitignore");
-            writeLines(ignore,
-                    ".gradle",
-                    "build",
-                    "",
-                    "# Eclipse",
-                    ".settings",
-                    ".metadata",
-                    ".classpath",
-                    ".project",
-                    "bin",
-                    "",
-                    "# IntelliJ",
-                    "out",
-                    "*.idea",
-                    "*.iml");
+            Util.writeLines(ignore,
+                ".gradle",
+                "build",
+                "",
+                "# Eclipse",
+                ".settings",
+                ".metadata",
+                ".classpath",
+                ".project",
+                "bin",
+                "",
+                "# IntelliJ",
+                "out",
+                "*.idea",
+                "*.iml"
+            );
             add(git, ignore);
 
             try {
@@ -327,11 +330,11 @@ public class Generator {
 
     private void commit(Git git, String message) throws GitAPIException {
         git.commit()
-                .setMessage(message)
-                .setAuthor("SnowBlower", "snow@blower.com")
-                .setCommitter("SnowBlower", "snow@blower.com")
-                .setSign(false)
-                .call();
+            .setMessage(message)
+            .setAuthor("SnowBlower", "snow@blower.com")
+            .setCommitter("SnowBlower", "snow@blower.com")
+            .setSign(false)
+            .call();
     }
 
     private static boolean isSnowblowerCommit(RevCommit commit) {
@@ -446,7 +449,7 @@ public class Generator {
                 }
             }
 
-            if (!copiedFromExtra && !downloadFile(mappings, version, type + "_mappings"))
+            if (!copiedFromExtra && !Util.downloadFile(this.logger, mappings, version, type + "_mappings"))
                 return null;
         }
 
@@ -527,7 +530,7 @@ public class Generator {
 
         if (download) {
             this.logger.accept("  Downloading " + type + " jar");
-            if (!downloadFile(jar, version, type))
+            if (!Util.downloadFile(this.logger, jar, version, type))
                 throw new IllegalStateException("Failed to download " + type + " jar");
             jarCache.put(type, jar);
             jarCache.write(jarCachePath);
@@ -578,7 +581,7 @@ public class Generator {
 
             if (!Files.exists(target)) {
                 Files.createDirectories(target.getParent());
-                downloadFile(target, dl.url(), dl.sha1());
+                Util.downloadFile(this.logger, target, dl.url(), dl.sha1());
             }
 
             ret.add(target);
@@ -588,9 +591,9 @@ public class Generator {
 
     private Path getRenamedJar(Path cache, Path joined, Path mappings, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
-                .put(Tools.FART, this.depCache)
-                .put("joined", joined)
-                .put("map", mappings);
+            .put(Tools.FART, this.depCache)
+            .put("joined", joined)
+            .put("map", mappings);
 
         for (var lib : libs) {
             var relative = libCache.relativize(lib);
@@ -603,15 +606,15 @@ public class Generator {
         if (!Files.exists(ret) || !key.isValid(keyF)) {
             this.logger.accept("  Renaming joined jar");
             var builder = Renamer.builder()
-                    .input(joined.toFile())
-                    .output(ret.toFile())
-                    .map(mappings.toFile())
-                    .add(Transformer.parameterAnnotationFixerFactory())
-                    .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
-                    .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
-                    .add(Transformer.recordFixerFactory())
-                    .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
-                    .logger(s -> {});
+                .input(joined.toFile())
+                .output(ret.toFile())
+                .map(mappings.toFile())
+                .add(Transformer.parameterAnnotationFixerFactory())
+                .add(Transformer.identifierFixerFactory(IdentifierFixerConfig.ALL))
+                .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
+                .add(Transformer.recordFixerFactory())
+                .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
+                .logger(s -> {});
             libs.forEach(l -> builder.lib(l.toFile()));
             builder.build().run();
 
@@ -623,8 +626,8 @@ public class Generator {
 
     private Path getDecompiledJar(Path cache, Path renamed, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
-                .put(Tools.FORGEFLOWER, this.depCache)
-                .put("renamed", renamed);
+            .put(Tools.FORGEFLOWER, this.depCache)
+            .put("renamed", renamed);
 
         String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1"};
         key.put("decompileArgs", String.join(" ", decompileArgs));
@@ -640,13 +643,13 @@ public class Generator {
         if (!Files.exists(ret) || !key.isValid(keyF)) {
             this.logger.accept("  Decompiling joined-renamed.jar");
             var cfg = cache.resolve("joined-libraries.cfg");
-            writeLines(cfg, libs.stream().map(l -> "-e=" + l.toString()).toArray(String[]::new));
+            Util.writeLines(cfg, libs.stream().map(l -> "-e=" + l.toString()).toArray(String[]::new));
 
             ConsoleDecompiler.main(Stream.concat(Arrays.stream(decompileArgs), Stream.of(
-                    "-log=ERROR", // IFernflowerLogger.Severity
-                    "-cfg", cfg.toString(),
-                    renamed.toString(),
-                    ret.toString()
+                "-log=ERROR", // IFernflowerLogger.Severity
+                "-cfg", cfg.toString(),
+                renamed.toString(),
+                ret.toString()
             )).toArray(String[]::new));
 
             key.write(keyF);
@@ -666,57 +669,6 @@ public class Generator {
                     throw new RuntimeException(e);
                 }
             });
-        }
-    }
-
-    private static void writeLines(Path target, String... lines) throws IOException {
-        String attrib = String.join("\n", lines);
-        Files.writeString(target, attrib);
-    }
-
-    private boolean downloadFile(Path output, Version version, String key) throws IOException {
-        Version.Download download = version.downloads().get(key);
-        if (download == null)
-            return false;
-
-        return downloadFile(output, download.url(), download.sha1());
-    }
-
-    private boolean downloadFile(Path file, URL url, String sha1) throws IOException {
-        this.logger.accept("  Downloading " + url.toString());
-        var connection = (HttpURLConnection) url.openConnection();
-        connection.setUseCaches(false);
-        connection.setDefaultUseCaches(false);
-        connection.setRequestProperty("Cache-Control", "no-store,max-age=0,no-cache");
-        connection.setRequestProperty("Expires", "0");
-        connection.setRequestProperty("Pragma", "no-cache");
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(5000);
-        connection.connect();
-
-        try (InputStream in = connection.getInputStream();
-                OutputStream out = Files.newOutputStream(file)) {
-            copy(in, out);
-        }
-
-        if (sha1 != null) {
-            var actual = HashFunction.SHA1.hash(file);
-            if (!actual.equals(sha1)) {
-                Files.delete(file);
-                throw new IOException("Failed to download " + url + " Invalid Hash:\n" +
-                        "    Expected: " + sha1 + "\n" +
-                        "    Actual: " + actual);
-            }
-        }
-
-        return true;
-    }
-
-    private static void copy(InputStream input, OutputStream output) throws IOException {
-        byte[] buf = new byte[0x100];
-        int cnt;
-        while ((cnt = input.read(buf, 0, buf.length)) != -1) {
-            output.write(buf, 0, cnt);
         }
     }
 }
