@@ -55,10 +55,13 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -325,6 +328,13 @@ public class Generator {
             dirCache.getEntry("gradlew").setFileMode(FileMode.EXECUTABLE_FILE);
             dirCache.write();
             dirCache.commit();
+
+            PosixFileAttributeView posixFileAttributeView = Files.getFileAttributeView(root.resolve("gradlew"), PosixFileAttributeView.class);
+            if (posixFileAttributeView != null) {
+                Set<PosixFilePermission> perms = posixFileAttributeView.readAttributes().permissions();
+                perms.addAll(EnumSet.of(PosixFilePermission.OWNER_EXECUTE, PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_EXECUTE));
+                posixFileAttributeView.setPermissions(perms);
+            }
         }
 
         return true;
