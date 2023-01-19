@@ -53,6 +53,9 @@ sourceSets {
 
 processResources {
     dependsOn tasks.named('generateDependencyHashes')
+    from 'gradlew'
+    from 'gradlew.bat'
+    from 'gradle'
 }
 
 eclipseClasspath.dependsOn('generateDependencyHashes')

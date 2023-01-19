@@ -29,14 +29,10 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.nio.file.FileSystemNotFoundException;
-import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 public class Main {
     private static final MinecraftVersion V1_14_4 = MinecraftVersion.from("1.14.4");
@@ -84,25 +80,8 @@ public class Main {
         URL depHashCacheUrl = Main.class.getResource("/dependency_hashes.txt");
         if (depHashCacheUrl == null)
             throw new IllegalStateException("Could not find dependency_hashes.txt on classpath");
-        DependencyHashCache depCache = DependencyHashCache.load(getPath(depHashCacheUrl.toURI()));
+        DependencyHashCache depCache = DependencyHashCache.load(Util.getPath(depHashCacheUrl.toURI()));
 
         new Generator(output.toPath(), cachePath, extraMappingsPath, startVer, targetVer, branchName, startOver, releasesOnly, depCache, System.out::println).run();
-    }
-
-    static Path getPath(URI uri) {
-        try {
-            return Path.of(uri);
-        } catch (FileSystemNotFoundException e) {
-            if (uri.getScheme().equals("jar")) {
-                try {
-                    FileSystems.newFileSystem(uri, Map.of());
-                } catch (IOException ex) {
-                    throw new RuntimeException(ex);
-                }
-                return Path.of(uri);
-            }
-
-            throw e;
-        }
     }
 }

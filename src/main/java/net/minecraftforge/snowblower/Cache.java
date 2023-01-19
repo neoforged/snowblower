@@ -58,7 +58,7 @@ public class Cache {
 
     public Cache put(Class<?> codeClass) {
         try {
-            Path folderPath = Main.getPath(codeClass.getProtectionDomain().getCodeSource().getLocation().toURI());
+            Path folderPath = Util.getPath(codeClass.getProtectionDomain().getCodeSource().getLocation().toURI());
             String packageName = codeClass.getPackageName();
             String[] packageParts = packageName.split("\\.");
             String keyPrefix = packageName.replace('.', '/') + '/';

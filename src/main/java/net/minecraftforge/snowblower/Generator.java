@@ -31,9 +31,12 @@ import net.minecraftforge.snowblower.data.Version;
 import net.minecraftforge.snowblower.data.VersionManifestV2;
 import net.minecraftforge.srgutils.IMappingFile;
 import net.minecraftforge.srgutils.MinecraftVersion;
+import org.eclipse.jgit.api.AddCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.dircache.DirCache;
 import org.eclipse.jgit.lib.Constants;
+import org.eclipse.jgit.lib.FileMode;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
@@ -46,9 +49,12 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -193,7 +199,7 @@ public class Generator {
             var version = Version.query(versionInfo.url()); //TODO: Cache version json, that requires etags
             if (this.generate(main, versionCache, libs, versionInfo, version)) {
                 this.logger.accept("  Committing files");
-                git.add().addFilepattern("src").call(); // Add all new files, and update existing ones.
+                git.add().addFilepattern("src").addFilepattern("build.gradle").call(); // Add all new files, and update existing ones.
                 git.add().addFilepattern("src").setUpdate(true).call(); // Need this to remove all missing files.
                 commit(git, versionInfo.id().toString());
             }
@@ -201,9 +207,11 @@ public class Generator {
     }
 
     private void deleteInitalCommit(Path root) throws IOException {
-        for (String file : new String[]{"Snowblower.txt", ".gitattributes", ".gitignore"}) {
+        for (String file : new String[]{"Snowblower.txt", ".gitattributes", ".gitignore", "gradlew", "gradlew.bat", "gradle"}) {
             Path target = root.resolve(file);
-            if (Files.exists(target))
+            if (Files.isDirectory(target))
+                deleteRecursive(target);
+            else if (Files.exists(target))
                 Files.delete(target);
         }
     }
@@ -214,8 +222,8 @@ public class Generator {
             return implVersion.substring(implVersion.indexOf('(') + 1, implVersion.indexOf(')'));
 
         try {
-            // This should never be a jar if the implementation version is missing
-            Path folderPath = Path.of(Generator.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            // This should never be a jar if the implementation version is missing, so we don't need Util#getPath
+            Path folderPath = Path.of(Util.getCodeSourceUri());
 
             while (!Files.exists(folderPath.resolve(".git"))) {
                 folderPath = folderPath.getParent();
@@ -227,7 +235,7 @@ public class Generator {
                 ObjectId headId = sourceGit.getRepository().resolve(Constants.HEAD);
                 return headId == null ? "unknown" : headId.getName();
             }
-        } catch (URISyntaxException | IOException e) {
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -283,7 +291,40 @@ public class Generator {
                     "*.iml");
             add(git, ignore);
 
+            try {
+                Path copyParentFolder = Util.isDev() ? Util.getSourcePath() : Util.getPath(Main.class.getResource("/resource_root.txt").toURI()).getParent();
+                List<String> toCopy = List.of("gradlew", "gradlew.bat", "gradle");
+                AddCommand addCmd = git.add();
+
+                for (String filename : toCopy) {
+                    Path copyPath = copyParentFolder.resolve(filename);
+                    if (Files.isRegularFile(copyPath)) {
+                        Files.copy(copyPath, root.resolve(filename), StandardCopyOption.REPLACE_EXISTING);
+                    } else {
+                        Files.walkFileTree(copyPath, new SimpleFileVisitor<>() {
+                            @Override
+                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                                Path destinationPath = root.resolve(copyParentFolder.relativize(file).toString());
+                                Files.createDirectories(destinationPath.getParent());
+                                Files.copy(file, destinationPath, StandardCopyOption.REPLACE_EXISTING);
+                                return FileVisitResult.CONTINUE;
+                            }
+                        });
+                    }
+                    addCmd.addFilepattern(filename);
+                }
+
+                addCmd.call();
+            } catch (URISyntaxException e) {
+                throw new RuntimeException(e);
+            }
+
             commit(git, "Initial commit");
+
+            DirCache dirCache = git.getRepository().lockDirCache();
+            dirCache.getEntry("gradlew").setFileMode(FileMode.EXECUTABLE_FILE);
+            dirCache.write();
+            dirCache.commit();
         }
 
         return true;
@@ -361,6 +402,36 @@ public class Generator {
                 throw new RuntimeException(e);
             }
         });
+
+        Files.writeString(this.output.resolve("build.gradle"), """
+                plugins {
+                    id 'java'
+                }
+
+                java {
+                    toolchain {
+                        languageVersion = JavaLanguageVersion.of(%java_version%)
+                    }
+                }
+
+                repositories {
+                    mavenCentral()
+                    maven {
+                        name = 'Mojang'
+                        url = 'https://libraries.minecraft.net/'
+                    }
+                }
+
+                dependencies {
+                %deps%
+                }
+                """
+                .replace("%java_version%", Integer.toString(version.javaVersion().majorVersion())) // This assumes the minimum to be 8 (which it is)
+                .replace("%deps%", version.libraries().stream()
+                        .filter(Version.Library::isAllowed)
+                        .sorted()
+                        .map(lib -> "    implementation '" + lib.name() + '\'')
+                        .collect(Collectors.joining("\n"))));
 
         return true;
     }
