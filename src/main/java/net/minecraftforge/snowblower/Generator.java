@@ -14,6 +14,8 @@ import net.minecraftforge.mergetool.AnnotationVersion;
 import net.minecraftforge.mergetool.Merger;
 import net.minecraftforge.snowblower.data.Version;
 import net.minecraftforge.snowblower.data.VersionManifestV2;
+import net.minecraftforge.snowblower.data.VersionManifestV2.VersionInfo;
+import net.minecraftforge.snowblower.tasks.init.InitTask;
 import net.minecraftforge.snowblower.util.Cache;
 import net.minecraftforge.snowblower.util.DependencyHashCache;
 import net.minecraftforge.snowblower.util.HashFunction;
@@ -21,35 +23,21 @@ import net.minecraftforge.snowblower.util.Tools;
 import net.minecraftforge.snowblower.util.Util;
 import net.minecraftforge.srgutils.IMappingFile;
 import net.minecraftforge.srgutils.MinecraftVersion;
-import org.eclipse.jgit.api.AddCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.dircache.DirCache;
 import org.eclipse.jgit.lib.Constants;
-import org.eclipse.jgit.lib.FileMode;
-import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.PosixFileAttributeView;
-import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -85,21 +73,22 @@ public class Generator {
 
     public void run() throws IOException, GitAPIException {
         try (Git git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(this.branchName == null ? "main" : this.branchName).call()) {
-            run(git);
+            run(git, this.startOver, this.branchName, this.startVer, this.targetVer, this.extraMappings);
         }
     }
 
-    private void run(Git git) throws IOException, GitAPIException {
+    private void run(Git git, boolean fresh, String branch, MinecraftVersion startVer, MinecraftVersion targetVer, Path extraMappings) throws IOException, GitAPIException {
         Files.createDirectories(this.output);
-        boolean fresh = this.startOver;
-        String branch = this.branchName;
-        String currentBranch = git.getRepository().getBranch();
+
+        // Find the current branch in case the command line didn't specify one.
+        var currentBranch = git.getRepository().getBranch();
         if (branch == null) {
             if (currentBranch == null)
                 throw new IllegalStateException("Git repository has no HEAD reference");
             branch = currentBranch;
         }
 
+        // If we are not in the wanted branch, attempt to switch to it. creating it if necessary
         if (!branch.equals(currentBranch) && git.getRepository().resolve(Constants.HEAD) != null) {
             boolean orphan = git.getRepository().resolve(branch) == null;
             git.checkout().setOrphan(orphan).setName(branch).call();
@@ -107,47 +96,68 @@ public class Generator {
                 fresh = true;
         }
 
-        Path src = this.output.resolve("src");
+        var init = new InitTask(this.logger, this.output, git);
+        var src = this.output.resolve("src");
 
         if (fresh) {
-            deleteRecursive(src);
-            deleteInitalCommit(this.output);
+            // Honestly we could delete the entire output folder minus the .git folder. We should keep the cache outside of the output
+            Util.deleteRecursive(src);
+            init.cleanup();
 
-            git.checkout().setOrphan(true).setName("orphan_temp").call();
-            git.branchDelete().setBranchNames(branch).setForce(true).call();
-            git.checkout().setOrphan(true).setName(branch).call();
-            git.reset().call();
+            git.checkout().setOrphan(true).setName("orphan_temp").call();    // Move to temp branch so we can delete existing one
+            git.branchDelete().setBranchNames(branch).setForce(true).call(); // Delete existing branch
+            git.checkout().setOrphan(true).setName(branch).call();           // Move to correctly named branch
+            git.reset().call(); // Cleans up any files that are in the git repo.
         }
 
-        ObjectId headId = git.getRepository().resolve(Constants.HEAD);
-        Iterator<RevCommit> iterator = headId == null ? null : git.log().add(headId).call().iterator();
-        RevCommit latestGenCommit = null;
+        // Get the last commit before we run the init's commit
+        var lastVersion = getLastVersion(git);
 
-        if (iterator != null && iterator.hasNext()) {
-            while (iterator.hasNext()) {
-                latestGenCommit = iterator.next();
-                if (isSnowblowerCommit(latestGenCommit))
-                    break;
-            }
-        }
-
-        if (!checkMetadata(git, fresh, this.output, this.startVer))
+        // Validate the current metadata, and make initial commit if needed.
+        if (!init.validate(fresh, startVer))
             return;
 
-        VersionManifestV2.VersionInfo[] versions = VersionManifestV2.query().versions();
+        var manifest = VersionManifestV2.query();
+        if (manifest.versions() == null)
+            throw new IllegalStateException("Failed to find versions, manifest mising versions listing");
+
+        var versions = Arrays.asList(manifest.versions());
+        /* Sort the list by release time.. in case Mojang screwed it up?
+            Arrays.stream(manifest.versions())
+            .sorted((a,b) -> b.releaseTime().compareTo(a.releaseTime())) // b to a, so its in descending order
+            .toList();
+        */
+
+        // Find the latest version from the manifest
+        if (targetVer == null) {
+            var lat = manifest.latest();
+            if (lat == null)
+                throw new IllegalStateException("Failed to determine latest version, Manifest does not contain latest entries");
+
+            if (releasesOnly)
+                targetVer = lat.release();
+            else {
+                var release = versions.stream().filter(e -> !lat.release().equals(e.id())).findFirst().orElse(null);
+                var snapshot = versions.stream().filter(e -> !lat.snapshot().equals(e.id())).findFirst().orElse(null);
+                if (release == null && snapshot == null)
+                    throw new IllegalStateException("Failed to find latest, manifest specified " + lat.release() + " and " + lat.snapshot() + " and both are missing");
+                if (release == null)
+                    targetVer = snapshot.id();
+                else if (snapshot == null)
+                    targetVer = release.id();
+                else
+                    targetVer = snapshot.releaseTime().compareTo(release.releaseTime()) > 0 ? snapshot.id() : release.id();
+            }
+        }
+
+        // Build our target list.
         int startIdx = -1;
         int endIdx = -1;
-        for (int i = 0; i < versions.length; i++) {
-            VersionManifestV2.VersionInfo versionInfo = versions[i];
-            MinecraftVersion ver = versionInfo.id();
-            if (endIdx == -1 && this.targetVer == null && (!this.releasesOnly || versionInfo.type().equals("release"))) {
-                // Null target version == latest version (while still respecting releasesOnly)
+        for (int i = 0; i < versions.size(); i++) {
+            var ver = versions.get(i).id();
+            if (ver.equals(targetVer))
                 endIdx = i;
-            }
-            if (ver.equals(this.targetVer)) {
-                endIdx = i;
-            }
-            if (ver.equals(this.startVer)) {
+            if (ver.equals(startVer)) {
                 startIdx = i;
                 break;
             }
@@ -156,25 +166,29 @@ public class Generator {
         if (startIdx == -1 || endIdx == -1)
             throw new IllegalStateException("Could not find start and/or end version in version manifest (or they were out of order)");
 
-        List<VersionManifestV2.VersionInfo> toGenerate = new ArrayList<>(Arrays.asList(versions).subList(endIdx, startIdx + 1));
-        if (this.releasesOnly)
+        List<VersionInfo> toGenerate = new ArrayList<>(versions.subList(endIdx, startIdx + 1));
+        if (releasesOnly)
             toGenerate.removeIf(v -> !v.type().equals("release"));
+        // Reverse so it's in oldest first
         Collections.reverse(toGenerate);
 
-        if (latestGenCommit != null) {
-            String search = latestGenCommit.getShortMessage();
+        // Allow resuming by finding the last thing we generated
+        if (lastVersion != null) {
             boolean found = false;
             for (int i = 0; i < toGenerate.size(); i++) {
-                if (toGenerate.get(i).id().toString().equals(search)) {
+                if (toGenerate.get(i).id().toString().equals(lastVersion)) {
                     toGenerate = toGenerate.subList(i + 1, toGenerate.size());
                     found = true;
                     break;
                 }
             }
 
-            if (!found)
-                return; // We have nothing to do as the latest commit is outside our range of versions to generate
+            if (!found) // We should at least find the 'end' version if we're up to date.
+                throw new IllegalStateException("Git is in invalid state, latest commit is " + lastVersion + " but it is not in our version list");
         }
+
+        // Filter version list to only versions that have mappings
+        toGenerate = findVersionsWithMappings(logger, toGenerate, cache, extraMappings);
 
         var libs = this.cache.resolve("libraries");
         var main = src.resolve("main");
@@ -185,166 +199,65 @@ public class Generator {
             Files.createDirectories(versionCache);
 
             this.logger.accept("[" + (x + 1) + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
-            var version = Version.query(versionInfo.url()); //TODO: Cache version json, that requires etags
+            var version = Version.load(versionCache.resolve("version.json"));
             if (this.generate(main, versionCache, libs, versionInfo, version)) {
                 this.logger.accept("  Committing files");
+                /*
+                 *  TODO: Make this faster by only commiting the detected changed files.
+                 *  Which we can grab from our extract task.
+                 *  Shrimp brings up a potential good point. if we get hundreds of versions, it may be prohibitive to
+                 *  rebuild the entire git history  when minor things changes. I don't think this is a valid complaint
+                 *  as the point of this project is to automate things and have zero manual input into the generated
+                 *  repo. But for future note we can look into/reevaluate that case when it happens
+                 */
                 git.add().addFilepattern("src").addFilepattern("build.gradle").call(); // Add all new files, and update existing ones.
                 git.add().addFilepattern("src").setUpdate(true).call(); // Need this to remove all missing files.
-                commit(git, versionInfo.id().toString());
+                Util.commit(git, versionInfo.id().toString(), versionInfo.releaseTime());
             }
         }
     }
 
-    private void deleteInitalCommit(Path root) throws IOException {
-        for (String file : new String[]{"Snowblower.txt", ".gitattributes", ".gitignore", "gradlew", "gradlew.bat", "gradle"}) {
-            Path target = root.resolve(file);
-            if (Files.isDirectory(target))
-                deleteRecursive(target);
-            else if (Files.exists(target))
-                Files.delete(target);
-        }
-    }
 
-    private static String getGitCommitHash() {
-        String implVersion = Generator.class.getPackage().getImplementationVersion();
-        if (implVersion != null)
-            return implVersion.substring(implVersion.indexOf('(') + 1, implVersion.indexOf(')'));
+    private static List<VersionInfo> findVersionsWithMappings(Consumer<String> logger, List<VersionInfo> versions, Path cache, Path extraMappings) throws IOException {
+        logger.accept("Downloading version manifests");
+        List<VersionInfo> ret = new ArrayList<>();
+        for (var ver : versions) {
+            // Download the version json file.
+            var json = cache.resolve(ver.id().toString()).resolve("version.json");
+            if (!Files.exists(json) || !HashFunction.SHA1.hash(json).equals(ver.sha1()))
+                Util.downloadFile(logger, json, ver.url(), ver.sha1());
 
-        try {
-            // This should never be a jar if the implementation version is missing, so we don't need Util#getPath
-            Path folderPath = Path.of(Util.getCodeSourceUri());
-
-            while (!Files.exists(folderPath.resolve(".git"))) {
-                folderPath = folderPath.getParent();
-                if (folderPath == null)
-                    return "unknown";
+            //TODO: Convert extraMappings into a object with 'boolean hasMapping(version, side)' and 'Path getMapping(version, size)'
+            var root = extraMappings.resolve(ver.type()).resolve(ver.id().toString()).resolve("maps");
+            var client = root.resolve("client.txt");
+            var server = root.resolve("server.txt");
+            if (Files.exists(client) && Files.exists(server))
+                ret.add(ver);
+            else {
+                var dls = Version.load(json).downloads();
+                if (dls.containsKey("client_mappings") && dls.containsKey("server_mappings"))
+                    ret.add(ver);
             }
 
-            try (Git sourceGit = Git.open(folderPath.toFile())) {
-                ObjectId headId = sourceGit.getRepository().resolve(Constants.HEAD);
-                return headId == null ? "unknown" : headId.getName();
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
+        return ret;
     }
 
-    private boolean checkMetadata(Git git, boolean fresh, Path root, MinecraftVersion start) throws IOException, GitAPIException {
-        var meta = new Cache().comment(
-            "Source files created by Snowblower",
-            "https://github.com/MinecraftForge/Snowblower")
-            .put("Snowblower", getGitCommitHash())
-            .put("Start", start.toString());
+    /**
+     * Gets the last 'automated' commit for the current branch.
+     * This allows us to know what version to resume from.
+     * Why we allow manual commits? I have no idea. Shrimp wanted it.
+     */
+    private static String getLastVersion(Git git) throws IOException, GitAPIException {
+        var headId = git.getRepository().resolve(Constants.HEAD);
+        if (headId == null)
+            return null;
 
-        Path metaPath = root.resolve("Snowblower.txt");
-        if (!fresh && !meta.isValid(metaPath)) {
-            this.logger.accept("The starting commit on this branch does not have matching metadata.");
-            this.logger.accept("This could be due to a different Snowblower version or a different starting Minecraft version.");
-            this.logger.accept("Please choose a different branch with --branch or add the --start-over flag and try again.");
-            return false;
+        for (var commit : git.log().add(headId).call()) {
+            if (commit.getCommitterIdent().getName().equalsIgnoreCase("SnowBlower"))
+                return commit.getShortMessage();
         }
-
-        if (fresh || !Files.exists(metaPath)) {
-            // Create metadata file
-            meta.write(metaPath);
-            add(git, metaPath);
-
-            // Create some git metadata files to make life sane
-            var attrs = root.resolve(".gitattributes");
-            Util.writeLines(attrs,
-                "* text eol=lf",
-                "*.java text eol=lf",
-                "*.json text eol=lf",
-                "*.xml text eol=lf",
-                "*.bin binary",
-                "*.png binary",
-                "*.gif binary",
-                "*.nbt binary"
-            );
-            add(git, attrs);
-
-            var ignore = root.resolve(".gitignore");
-            Util.writeLines(ignore,
-                ".gradle",
-                "build",
-                "",
-                "# Eclipse",
-                ".settings",
-                ".metadata",
-                ".classpath",
-                ".project",
-                "bin",
-                "",
-                "# IntelliJ",
-                "out",
-                "*.idea",
-                "*.iml"
-            );
-            add(git, ignore);
-
-            try {
-                Path copyParentFolder = Util.isDev() ? Util.getSourcePath() : Util.getPath(Main.class.getResource("/resource_root.txt").toURI()).getParent();
-                List<String> toCopy = List.of("gradlew", "gradlew.bat", "gradle");
-                AddCommand addCmd = git.add();
-
-                for (String filename : toCopy) {
-                    Path copyPath = copyParentFolder.resolve(filename);
-                    if (Files.isRegularFile(copyPath)) {
-                        Files.copy(copyPath, root.resolve(filename), StandardCopyOption.REPLACE_EXISTING);
-                    } else {
-                        Files.walkFileTree(copyPath, new SimpleFileVisitor<>() {
-                            @Override
-                            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                Path destinationPath = root.resolve(copyParentFolder.relativize(file).toString());
-                                Files.createDirectories(destinationPath.getParent());
-                                Files.copy(file, destinationPath, StandardCopyOption.REPLACE_EXISTING);
-                                return FileVisitResult.CONTINUE;
-                            }
-                        });
-                    }
-                    addCmd.addFilepattern(filename);
-                }
-
-                addCmd.call();
-            } catch (URISyntaxException e) {
-                throw new RuntimeException(e);
-            }
-
-            commit(git, "Initial commit");
-
-            DirCache dirCache = git.getRepository().lockDirCache();
-            dirCache.getEntry("gradlew").setFileMode(FileMode.EXECUTABLE_FILE);
-            dirCache.write();
-            dirCache.commit();
-
-            PosixFileAttributeView posixFileAttributeView = Files.getFileAttributeView(root.resolve("gradlew"), PosixFileAttributeView.class);
-            if (posixFileAttributeView != null) {
-                Set<PosixFilePermission> perms = posixFileAttributeView.readAttributes().permissions();
-                perms.addAll(EnumSet.of(PosixFilePermission.OWNER_EXECUTE, PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_EXECUTE));
-                posixFileAttributeView.setPermissions(perms);
-            }
-        }
-
-        return true;
-    }
-
-    private void commit(Git git, String message) throws GitAPIException {
-        git.commit()
-            .setMessage(message)
-            .setAuthor("SnowBlower", "snow@blower.com")
-            .setCommitter("SnowBlower", "snow@blower.com")
-            .setSign(false)
-            .call();
-    }
-
-    private static boolean isSnowblowerCommit(RevCommit commit) {
-        return commit.getCommitterIdent().getName().equalsIgnoreCase("SnowBlower");
-    }
-
-    private void add(Git git, Path file) throws GitAPIException {
-        var root = git.getRepository().getDirectory().getParentFile().toPath();
-        var path = root.relativize(file);
-        git.add().addFilepattern(path.toString()).call();
+        return null;
     }
 
     private boolean generate(Path src, Path cache, Path libCache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
@@ -477,8 +390,8 @@ public class Generator {
             throw new IllegalStateException("Client mappings for " + versionInfo.id() + " are not a strict superset of the server mappings.");
 
         var key = new Cache()
-                .put("client", cache.resolve("client_mappings.txt"))
-                .put("server", cache.resolve("server_mappings.txt"));
+            .put("client", cache.resolve("client_mappings.txt"))
+            .put("server", cache.resolve("server_mappings.txt"));
         var keyF = cache.resolve("obf_to_moj.tsrg.cache");
         var ret = cache.resolve("obf_to_moj.tsrg");
 
@@ -519,21 +432,23 @@ public class Generator {
 
     private Path getJar(String type, Path cache, Version version) throws IOException {
         var jar = cache.resolve(type + ".jar");
-        var jarCachePath = cache.resolve(type + ".jar.cache");
-        Cache jarCache = new Cache();
-        boolean download = true;
+        var keyF = cache.resolve(type + ".jar.cache");
+        var dl = version.downloads().get(type);
+        if (dl == null || dl.sha1() == null)
+            throw new IllegalStateException("Could not download \"" + type + "\" jar as version json doesn't have download entry");
 
-        if (Files.exists(jar)) {
-            jarCache.put(type, jar);
-            download = !jarCache.isValid(jarCachePath);
-        }
+        // We include the hash from the json, because Mojang HAS done silent updates before
+        // Should we detect/notify about this somehow?
+        // Plus it's faster to use the existing string instead of hashing a file.
+        var key = new Cache()
+            .put(type, dl.sha1());
 
-        if (download) {
+        if (!Files.exists(jar) || !key.isValid(keyF)) {
             this.logger.accept("  Downloading " + type + " jar");
-            if (!Util.downloadFile(this.logger, jar, version, type))
+            if (!Util.downloadFile(this.logger, jar, dl.url(), dl.sha1()))
                 throw new IllegalStateException("Failed to download " + type + " jar");
-            jarCache.put(type, jar);
-            jarCache.write(jarCachePath);
+            key.put(type, jar);
+            key.write(keyF);
         }
 
         return jar;
@@ -544,10 +459,10 @@ public class Generator {
         var serverJar = getJar("server", cache, version);
 
         var key = new Cache()
-                .put(Tools.MERGETOOL, this.depCache)
-                .put("client", clientJar)
-                .put("server", serverJar)
-                .put("map", mappings);
+            .put(Tools.MERGETOOL, this.depCache)
+            .put("client", clientJar)
+            .put("server", serverJar)
+            .put("map", mappings);
         var keyF = cache.resolve("joined.jar.cache");
         var joinedJar = cache.resolve("joined.jar");
 
@@ -579,6 +494,8 @@ public class Generator {
             var dl = lib.downloads().get("artifact");
             var target = cache.resolve(dl.path());
 
+            // In theory we should check the hash matches the hash in the json,
+            // but I don't think this will ever be an issue
             if (!Files.exists(target)) {
                 Files.createDirectories(target.getParent());
                 Util.downloadFile(this.logger, target, dl.url(), dl.sha1());
@@ -655,20 +572,5 @@ public class Generator {
             key.write(keyF);
         }
         return ret;
-    }
-
-    private static void deleteRecursive(Path dir) throws IOException {
-        if (!Files.exists(dir))
-            return;
-
-        try (Stream<Path> walker = Files.walk(dir)) {
-            walker.sorted(Comparator.reverseOrder()).forEach(p -> {
-                try {
-                    Files.delete(p);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        }
     }
 }

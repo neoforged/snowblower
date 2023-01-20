@@ -7,8 +7,10 @@ package net.minecraftforge.snowblower.util;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -16,13 +18,29 @@ import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.Date;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
+
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.PersonIdent;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonDeserializer;
 
 import net.minecraftforge.snowblower.Main;
 import net.minecraftforge.snowblower.data.Version;
+import net.minecraftforge.srgutils.MinecraftVersion;
 
 public class Util {
+    public static final Gson GSON = new GsonBuilder()
+        .registerTypeAdapter(MinecraftVersion.class, (JsonDeserializer<MinecraftVersion>) (json, typeOfT, context) -> MinecraftVersion.from(json.getAsString()))
+        .create();
+
     public static Path getPath(URI uri) {
         try {
             return Path.of(uri);
@@ -91,7 +109,7 @@ public class Util {
         connection.connect();
 
         try (InputStream in = connection.getInputStream();
-                OutputStream out = Files.newOutputStream(file)) {
+             OutputStream out = Files.newOutputStream(file)) {
             copy(in, out);
         }
 
@@ -108,6 +126,23 @@ public class Util {
         return true;
     }
 
+    public static <T> T downloadJson(URL url, Class<T> type) throws IOException {
+        // TODO Make a util function that controls the cache, and allows redirects?
+        var connection = (HttpURLConnection)url.openConnection();
+        connection.setUseCaches(false);
+        connection.setDefaultUseCaches(false);
+        connection.setRequestProperty("Cache-Control", "no-store,max-age=0,no-cache");
+        connection.setRequestProperty("Expires", "0");
+        connection.setRequestProperty("Pragma", "no-cache");
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(5000);
+        connection.connect();
+
+        try (var in = new InputStreamReader(connection.getInputStream())) {
+            return GSON.fromJson(in, type);
+        }
+    }
+
     private static void copy(InputStream input, OutputStream output) throws IOException {
         byte[] buf = new byte[0x100];
         int cnt;
@@ -115,4 +150,45 @@ public class Util {
             output.write(buf, 0, cnt);
         }
     }
+
+    public static void deleteRecursive(Path dir) throws IOException {
+        if (!Files.exists(dir))
+            return;
+
+        try (Stream<Path> walker = Files.walk(dir)) {
+            walker.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        }
+    }
+
+    public static void commit(Git git, String message, Date time) throws GitAPIException {
+        var snowblower = new PersonIdent("SnowBlower", "snow@blower.com");
+        var timed = new PersonIdent(snowblower, time);
+        git.commit()
+            .setMessage(message)
+            .setAuthor(timed)
+            .setCommitter(timed)
+            .setSign(false)
+            .call();
+    }
+
+    public static void add(Git git, Path file) throws GitAPIException {
+        var root = git.getRepository().getDirectory().getParentFile().toPath();
+        var path = root.relativize(file);
+        git.add().addFilepattern(path.toString()).call();
+    }
+
+    public static URL makeURL(String url) {
+        try {
+            return new URL(url);
+        } catch (MalformedURLException e) { // God I hate the URL class
+            throw new RuntimeException(e);
+        }
+    }
+
 }

@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 public class Main {
@@ -27,7 +28,7 @@ public class Main {
     public static void main(String[] args) throws IOException, GitAPIException, URISyntaxException {
         OptionParser parser = new OptionParser();
         OptionSpec<File> outputO = parser.accepts("output", "Output directory to put the git directory in").withRequiredArg().ofType(File.class).required();
-        OptionSpec<File> cacheO = parser.accepts("cache", "Cache directory to hold all files related to a version. If omitted, goes to {output}/build/cache.")
+        OptionSpec<File> cacheO = parser.accepts("cache", "Cache directory to hold all files related to a version. If omitted, goes to ./cache.")
                 .withRequiredArg().ofType(File.class);
         OptionSpec<File> extraMappingsO = parser.accepts("extra-mappings", "When set, points to a directory with extra mappings files").withRequiredArg().ofType(File.class);
         OptionSpec<String> startVerO = parser.accepts("start-ver", "The starting Minecraft version to generate from (inclusive)").withRequiredArg().ofType(String.class).defaultsTo(V1_14_4.toString());
@@ -51,7 +52,7 @@ public class Main {
 
         File output = options.valueOf(outputO);
         File cache = options.valueOf(cacheO);
-        Path cachePath = cache == null ? output.toPath().resolve("build").resolve("cache") : cache.toPath();
+        Path cachePath = cache == null ? Paths.get("cache"): cache.toPath();
         File extraMappings = options.valueOf(extraMappingsO);
         Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath();
         boolean startOver = options.has(startOverO);

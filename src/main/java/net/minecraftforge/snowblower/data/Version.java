@@ -5,10 +5,13 @@
 
 package net.minecraftforge.snowblower.data;
 
-import javax.net.ssl.HttpsURLConnection;
+import net.minecraftforge.snowblower.util.Util;
+
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -16,9 +19,13 @@ import java.util.regex.Pattern;
 
 public record Version(Map<String, Download> downloads, List<Library> libraries, JavaVersion javaVersion) {
     public static Version query(URL url) throws IOException {
-        HttpsURLConnection urlConnection = (HttpsURLConnection) url.openConnection();
-        urlConnection.connect();
-        return VersionManifestV2.GSON.fromJson(new InputStreamReader(urlConnection.getInputStream()), Version.class);
+        return Util.downloadJson(url, Version.class);
+    }
+
+    public static Version load(Path file) throws IOException {
+        try (var in = new InputStreamReader(Files.newInputStream(file))) {
+            return Util.GSON.fromJson(in, Version.class);
+        }
     }
 
     public record Download(String path, String sha1, int size, URL url) {}
