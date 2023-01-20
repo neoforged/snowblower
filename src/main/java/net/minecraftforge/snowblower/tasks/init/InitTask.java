@@ -137,8 +137,6 @@ public class InitTask {
                 throw new RuntimeException(e);
             }
 
-            Util.commit(git, "Initial commit", new Date(1));
-
             DirCache dirCache = git.getRepository().lockDirCache();
             dirCache.getEntry("gradlew").setFileMode(FileMode.EXECUTABLE_FILE);
             dirCache.write();
@@ -150,6 +148,8 @@ public class InitTask {
                 perms.addAll(EnumSet.of(PosixFilePermission.OWNER_EXECUTE, PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_EXECUTE));
                 posixFileAttributeView.setPermissions(perms);
             }
+
+            Util.commit(git, "Initial commit", new Date(1));
         }
 
         return true;

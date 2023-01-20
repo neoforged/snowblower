@@ -10,18 +10,18 @@ import net.minecraftforge.fart.api.Renamer;
 import net.minecraftforge.fart.api.SignatureStripperConfig;
 import net.minecraftforge.fart.api.SourceFixerConfig;
 import net.minecraftforge.fart.api.Transformer;
-import net.minecraftforge.mergetool.AnnotationVersion;
-import net.minecraftforge.mergetool.Merger;
 import net.minecraftforge.snowblower.data.Version;
 import net.minecraftforge.snowblower.data.VersionManifestV2;
 import net.minecraftforge.snowblower.data.VersionManifestV2.VersionInfo;
+import net.minecraftforge.snowblower.tasks.MappingTask;
+import net.minecraftforge.snowblower.tasks.MergeTask;
+import net.minecraftforge.snowblower.tasks.enhance.EnhanceVersionTask;
 import net.minecraftforge.snowblower.tasks.init.InitTask;
 import net.minecraftforge.snowblower.util.Cache;
 import net.minecraftforge.snowblower.util.DependencyHashCache;
 import net.minecraftforge.snowblower.util.HashFunction;
 import net.minecraftforge.snowblower.util.Tools;
 import net.minecraftforge.snowblower.util.Util;
-import net.minecraftforge.srgutils.IMappingFile;
 import net.minecraftforge.srgutils.MinecraftVersion;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -73,11 +73,11 @@ public class Generator {
 
     public void run() throws IOException, GitAPIException {
         try (Git git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(this.branchName == null ? "main" : this.branchName).call()) {
-            run(git, this.startOver, this.branchName, this.startVer, this.targetVer, this.extraMappings);
+            run(git, this.startOver, this.branchName, this.startVer, this.targetVer, this.extraMappings, this.depCache);
         }
     }
 
-    private void run(Git git, boolean fresh, String branch, MinecraftVersion startVer, MinecraftVersion targetVer, Path extraMappings) throws IOException, GitAPIException {
+    private void run(Git git, boolean fresh, String branch, MinecraftVersion startVer, MinecraftVersion targetVer, Path extraMappings, DependencyHashCache depCache) throws IOException, GitAPIException {
         Files.createDirectories(this.output);
 
         // Find the current branch in case the command line didn't specify one.
@@ -191,8 +191,6 @@ public class Generator {
         toGenerate = findVersionsWithMappings(logger, toGenerate, cache, extraMappings);
 
         var libs = this.cache.resolve("libraries");
-        var main = src.resolve("main");
-
         for (int x = 0; x < toGenerate.size(); x++) {
             var versionInfo = toGenerate.get(x);
             var versionCache = this.cache.resolve(versionInfo.id().toString());
@@ -200,23 +198,9 @@ public class Generator {
 
             this.logger.accept("[" + (x + 1) + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
             var version = Version.load(versionCache.resolve("version.json"));
-            if (this.generate(main, versionCache, libs, versionInfo, version)) {
-                this.logger.accept("  Committing files");
-                /*
-                 *  TODO: Make this faster by only commiting the detected changed files.
-                 *  Which we can grab from our extract task.
-                 *  Shrimp brings up a potential good point. if we get hundreds of versions, it may be prohibitive to
-                 *  rebuild the entire git history  when minor things changes. I don't think this is a valid complaint
-                 *  as the point of this project is to automate things and have zero manual input into the generated
-                 *  repo. But for future note we can look into/reevaluate that case when it happens
-                 */
-                git.add().addFilepattern("src").addFilepattern("build.gradle").call(); // Add all new files, and update existing ones.
-                git.add().addFilepattern("src").setUpdate(true).call(); // Need this to remove all missing files.
-                Util.commit(git, versionInfo.id().toString(), versionInfo.releaseTime());
-            }
+            generate(logger, git, output, versionCache, libs, version, extraMappings, depCache);
         }
     }
-
 
     private static List<VersionInfo> findVersionsWithMappings(Consumer<String> logger, List<VersionInfo> versions, Path cache, Path extraMappings) throws IOException {
         logger.accept("Downloading version manifests");
@@ -260,16 +244,17 @@ public class Generator {
         return null;
     }
 
-    private boolean generate(Path src, Path cache, Path libCache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
-        var mappings = getMergedMappings(cache, versionInfo, version);
+    private void generate(Consumer<String> logger, Git git, Path output, Path cache, Path libCache, Version version, Path extraMappings, DependencyHashCache depCache) throws IOException, GitAPIException {
+        var mappings = MappingTask.getMergedMappings(logger, cache, version, extraMappings);
         if (mappings == null)
-            return false;
+            return;
 
-        var joined = getJoinedJar(cache, version, mappings);
+        var joined = MergeTask.getJoinedJar(logger, cache, version, mappings, depCache);
         var libs = getLibraries(libCache, version);
         var renamed = getRenamedJar(cache, joined, mappings, libCache, libs);
         var decomped = getDecompiledJar(cache, renamed, libCache, libs);
 
+        Path src = output.resolve("src").resolve("main");
         Set<Path> existingFiles;
         if (Files.exists(src)) {
             try (Stream<Path> walker = Files.walk(src)) {
@@ -280,6 +265,8 @@ public class Generator {
         }
         var java = src.resolve("java");
         var resources = src.resolve("resources");
+        List<Path> added = new ArrayList<>();
+        List<Path> removed = new ArrayList<>();
 
         try (FileSystem zipFs = FileSystems.newFileSystem(decomped)) {
             var root = zipFs.getPath("/");
@@ -292,11 +279,14 @@ public class Generator {
                         if (existingFiles.remove(target)) {
                             var existing = HashFunction.MD5.hash(target);
                             var created = HashFunction.MD5.hash(p);
-                            if (!existing.equals(created))
+                            if (!existing.equals(created)) {
                                 Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
+                                added.add(target);
+                            }
                         } else {
                             Files.createDirectories(target.getParent());
                             Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
+                            added.add(target);
                         }
 
                     } catch (IOException e) {
@@ -306,181 +296,35 @@ public class Generator {
             }
         }
 
+        var enhanced = EnhanceVersionTask.enhance(output, version);
+        existingFiles.removeAll(enhanced);
+        added.addAll(enhanced);
+
         existingFiles.stream().sorted().forEach(p -> {
             try {
                 Files.delete(p);
+                removed.add(p);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         });
 
-        Files.writeString(this.output.resolve("build.gradle"), """
-                plugins {
-                    id 'java'
-                }
+        if (!added.isEmpty() || !removed.isEmpty()) {
+            this.logger.accept("  Committing files");
+            Function<Path, String> convert = p -> output.relativize(p).toString().replace('\\', '/'); // JGit requires / even on windows
 
-                java {
-                    toolchain {
-                        languageVersion = JavaLanguageVersion.of(%java_version%)
-                    }
-                }
-
-                repositories {
-                    mavenCentral()
-                    maven {
-                        name = 'Mojang'
-                        url = 'https://libraries.minecraft.net/'
-                    }
-                }
-
-                dependencies {
-                %deps%
-                }
-                """
-                .replace("%java_version%", Integer.toString(version.javaVersion().majorVersion())) // This assumes the minimum to be 8 (which it is)
-                .replace("%deps%", version.libraries().stream()
-                        .filter(Version.Library::isAllowed)
-                        .sorted()
-                        .map(lib -> "    implementation '" + lib.name() + '\'')
-                        .collect(Collectors.joining("\n"))));
-
-        return true;
-    }
-
-    private IMappingFile downloadMappings(Path cache, VersionManifestV2.VersionInfo versionInfo, Version version, String type) throws IOException {
-        var mappings = cache.resolve(type + "_mappings.txt");
-
-        if (!Files.exists(mappings)) {
-            this.logger.accept("  Downloading " + type + " mappings");
-            boolean copiedFromExtra = false;
-
-            if (this.extraMappings != null) {
-                Path extraMap = this.extraMappings.resolve(versionInfo.type()).resolve(versionInfo.id().toString()).resolve("maps").resolve(type + ".txt");
-                if (Files.exists(extraMap)) {
-                    Files.copy(extraMap, mappings, StandardCopyOption.REPLACE_EXISTING);
-                    copiedFromExtra = true;
-                }
+            if (!added.isEmpty()) {
+                var add = git.add();
+                added.stream().map(convert).forEach(add::addFilepattern);
+                add.call();
             }
-
-            if (!copiedFromExtra && !Util.downloadFile(this.logger, mappings, version, type + "_mappings"))
-                return null;
+            if (!removed.isEmpty()) {
+                var rm = git.rm();
+                removed.stream().map(convert).forEach(rm::addFilepattern);
+                rm.call();
+            }
+            Util.commit(git, version.id().toString(), version.releaseTime());
         }
-
-        try (var in = Files.newInputStream(mappings)) {
-            return IMappingFile.load(in);
-        }
-    }
-
-    private Path getMergedMappings(Path cache, VersionManifestV2.VersionInfo versionInfo, Version version) throws IOException {
-        var clientMojToObj = downloadMappings(cache, versionInfo, version, "client");
-
-        if (clientMojToObj == null) {
-            this.logger.accept("  Client mappings not found, skipping version");
-            return null;
-        }
-
-        var serverMojToObj = downloadMappings(cache, versionInfo, version, "server");
-
-        if (serverMojToObj == null) {
-            this.logger.accept("  Server mappings not found, skipping version");
-            return null;
-        }
-
-        if (!canMerge(clientMojToObj, serverMojToObj))
-            throw new IllegalStateException("Client mappings for " + versionInfo.id() + " are not a strict superset of the server mappings.");
-
-        var key = new Cache()
-            .put("client", cache.resolve("client_mappings.txt"))
-            .put("server", cache.resolve("server_mappings.txt"));
-        var keyF = cache.resolve("obf_to_moj.tsrg.cache");
-        var ret = cache.resolve("obf_to_moj.tsrg");
-
-        if (!Files.exists(ret) || !key.isValid(keyF)) {
-            clientMojToObj.write(ret, IMappingFile.Format.TSRG2, true);
-            key.write(keyF);
-        }
-
-        return ret;
-    }
-
-    // https://github.com/LexManos/MappingToy/blob/master/src/main/java/net/minecraftforge/lex/mappingtoy/MappingToy.java#L271
-    private static boolean canMerge(IMappingFile client, IMappingFile server) {
-        // Test if the client is a strict super-set of server.
-        // If so, the client mappings can be used for the joined jar.
-        final Function<IMappingFile.IField, String> fldToString = fld -> fld.getOriginal() + " " + fld.getDescriptor() + " -> " + fld.getMapped() + " " + fld.getMappedDescriptor();
-        final Function<IMappingFile.IMethod, String> mtdToString = mtd -> mtd.getOriginal() + " " + mtd.getDescriptor() + " -> " + mtd.getMapped() + " " + mtd.getMappedDescriptor();
-
-        for (IMappingFile.IClass clsS : server.getClasses()) {
-            IMappingFile.IClass clsC = client.getClass(clsS.getOriginal());
-            if (clsC == null || !clsS.getMapped().equals(clsC.getMapped()))
-                return false;
-
-            Set<String> fldsS = clsS.getFields().stream().map(fldToString).collect(Collectors.toCollection(HashSet::new));
-            Set<String> fldsC = clsC.getFields().stream().map(fldToString).collect(Collectors.toCollection(HashSet::new));
-            Set<String> mtdsS = clsS.getMethods().stream().map(mtdToString).collect(Collectors.toCollection(HashSet::new));
-            Set<String> mtdsC = clsC.getMethods().stream().map(mtdToString).collect(Collectors.toCollection(HashSet::new));
-
-            fldsS.removeAll(fldsC);
-            mtdsS.removeAll(mtdsC);
-
-            if (!fldsS.isEmpty() || !mtdsS.isEmpty())
-                return false;
-        }
-
-        return true;
-    }
-
-    private Path getJar(String type, Path cache, Version version) throws IOException {
-        var jar = cache.resolve(type + ".jar");
-        var keyF = cache.resolve(type + ".jar.cache");
-        var dl = version.downloads().get(type);
-        if (dl == null || dl.sha1() == null)
-            throw new IllegalStateException("Could not download \"" + type + "\" jar as version json doesn't have download entry");
-
-        // We include the hash from the json, because Mojang HAS done silent updates before
-        // Should we detect/notify about this somehow?
-        // Plus it's faster to use the existing string instead of hashing a file.
-        var key = new Cache()
-            .put(type, dl.sha1());
-
-        if (!Files.exists(jar) || !key.isValid(keyF)) {
-            this.logger.accept("  Downloading " + type + " jar");
-            if (!Util.downloadFile(this.logger, jar, dl.url(), dl.sha1()))
-                throw new IllegalStateException("Failed to download " + type + " jar");
-            key.put(type, jar);
-            key.write(keyF);
-        }
-
-        return jar;
-    }
-
-    private Path getJoinedJar(Path cache, Version version, Path mappings) throws IOException {
-        var clientJar = getJar("client", cache, version);
-        var serverJar = getJar("server", cache, version);
-
-        var key = new Cache()
-            .put(Tools.MERGETOOL, this.depCache)
-            .put("client", clientJar)
-            .put("server", serverJar)
-            .put("map", mappings);
-        var keyF = cache.resolve("joined.jar.cache");
-        var joinedJar = cache.resolve("joined.jar");
-
-        if (!Files.exists(joinedJar) || !key.isValid(keyF)) {
-            this.logger.accept("  Merging client and server jars");
-            Merger merger = new Merger(clientJar.toFile(), serverJar.toFile(), joinedJar.toFile());
-            // Whitelist only Mojang classes to process
-            var map = IMappingFile.load(mappings.toFile());
-            map.getClasses().forEach(cls -> merger.whitelist(cls.getOriginal()));
-            merger.annotate(AnnotationVersion.API, true);
-            merger.keepData();
-            merger.skipMeta();
-            merger.process();
-
-            key.write(keyF);
-        }
-
-        return joinedJar;
     }
 
     private List<Path> getLibraries(Path cache, Version version) throws IOException {

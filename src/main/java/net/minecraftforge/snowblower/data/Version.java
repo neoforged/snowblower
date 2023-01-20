@@ -6,18 +6,28 @@
 package net.minecraftforge.snowblower.data;
 
 import net.minecraftforge.snowblower.util.Util;
+import net.minecraftforge.srgutils.MinecraftVersion;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-public record Version(Map<String, Download> downloads, List<Library> libraries, JavaVersion javaVersion) {
+public record Version(
+    MinecraftVersion id,
+    Date time,
+    Date releaseTime,
+    String type,
+    Map<String, Download> downloads,
+    List<Library> libraries,
+    JavaVersion javaVersion) {
+
     public static Version query(URL url) throws IOException {
         return Util.downloadJson(url, Version.class);
     }
