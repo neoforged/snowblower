@@ -55,7 +55,7 @@ public class EnhanceVersionTask {
             .getBytes(StandardCharsets.UTF_8);
 
         var build = output.resolve("build.gradle");
-        var existing = HashFunction.MD5.hash(build);
+        var existing = Files.exists(build) ? HashFunction.MD5.hash(build) : "";
         var created = HashFunction.MD5.hash(data);
         if (!existing.equals(created)) {
             Files.write(build, data);

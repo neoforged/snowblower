@@ -108,6 +108,7 @@ public class Util {
         connection.setReadTimeout(5000);
         connection.connect();
 
+        Files.createDirectories(file.getParent());
         try (InputStream in = connection.getInputStream();
              OutputStream out = Files.newOutputStream(file)) {
             copy(in, out);
@@ -179,7 +180,7 @@ public class Util {
 
     public static void add(Git git, Path file) throws GitAPIException {
         var root = git.getRepository().getDirectory().getParentFile().toPath();
-        var path = root.relativize(file);
+        var path = root.toAbsolutePath().relativize(file.toAbsolutePath());
         git.add().addFilepattern(path.toString()).call();
     }
 

@@ -10,6 +10,8 @@ import net.minecraftforge.fart.api.Renamer;
 import net.minecraftforge.fart.api.SignatureStripperConfig;
 import net.minecraftforge.fart.api.SourceFixerConfig;
 import net.minecraftforge.fart.api.Transformer;
+import net.minecraftforge.snowblower.data.Config;
+import net.minecraftforge.snowblower.data.Config.BranchSpec;
 import net.minecraftforge.snowblower.data.Version;
 import net.minecraftforge.snowblower.data.VersionManifestV2;
 import net.minecraftforge.snowblower.data.VersionManifestV2.VersionInfo;
@@ -22,9 +24,10 @@ import net.minecraftforge.snowblower.util.DependencyHashCache;
 import net.minecraftforge.snowblower.util.HashFunction;
 import net.minecraftforge.snowblower.util.Tools;
 import net.minecraftforge.snowblower.util.Util;
-import net.minecraftforge.srgutils.MinecraftVersion;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.ResetCommand.ResetType;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.lib.Constants;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
@@ -45,77 +48,79 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class Generator {
+public class Generator implements AutoCloseable {
     private final Path output;
     private final Path cache;
     private final Path extraMappings;
-    private final boolean startOver;
-    private final MinecraftVersion startVer;
-    private final MinecraftVersion targetVer;
-    private final String branchName;
-    private final boolean releasesOnly;
     private final DependencyHashCache depCache;
-    private final Consumer<String> logger;
+    private final Consumer<String> logger = System.out::println;
 
-    public Generator(Path output, Path cache, Path extraMappings, MinecraftVersion startVer, MinecraftVersion targetVer, String branchName, boolean startOver, boolean releasesOnly,
-            DependencyHashCache depCache, Consumer<String> logger) {
+    private Git git;
+    private Config.BranchSpec branch;
+
+    public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache) {
         this.output = output;
         this.cache = cache;
         this.extraMappings = extraMappings;
-        this.startOver = startOver;
-        this.startVer = startVer;
-        this.targetVer = targetVer;
-        this.branchName = branchName;
-        this.releasesOnly = releasesOnly;
         this.depCache = depCache;
-        this.logger = logger;
+    }
+
+    public Generator setup(String branchName, Config cfg, BranchSpec cliBranch, boolean fresh) throws IOException, GitAPIException {
+        try {
+            this.git = Git.open(this.output.toFile());
+            // Find the current branch in case the command line didn't specify one.
+            var currentBranch = git.getRepository().getBranch();
+            if (branchName == null) {
+                if (currentBranch == null)
+                    throw new IllegalStateException("Git repository has no HEAD reference");
+                branchName = currentBranch;
+            }
+
+            boolean exists = git.getRepository().resolve(branchName) != null;
+            boolean temp = false;
+            if (fresh && exists) {
+                if (branchName.equals(currentBranch)) {
+                    git.checkout().setOrphan(true).setName("orphan_temp").call();    // Move to temp branch so we can delete existing one
+                    temp = true;
+                }
+                git.branchDelete().setBranchNames(branchName).setForce(true).call(); // Delete existing branch
+                exists = false;
+                git.checkout().setOrphan(true).setName(branchName).call(); // Move to correctly named branch
+            } else if (!branchName.equals(currentBranch)) {
+                git.checkout().setOrphan(!exists).setName(branchName).call(); // Move to correctly named branch
+            }
+
+            git.reset().setMode(ResetType.HARD).call();
+            git.clean().setCleanDirectories(true).call();
+
+            if (temp)
+                git.branchDelete().setBranchNames("orphan_temp").setForce(true).call(); // Cleanup temp branch
+        } catch (RepositoryNotFoundException e) { // I wish there was a better way to detect if it exists/is init
+            if (branchName == null)
+                branchName = "release";
+            Util.deleteRecursive(this.output);
+            this.git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(branchName).call();
+        }
+
+        var cfgBranch = cfg.branches() == null ? null : cfg.branches().get(branchName);
+        if (cfgBranch == null) {
+            if (cliBranch.start() == null && cliBranch.end() == null && cliBranch.versions() == null)
+                throw new IllegalArgumentException("Unknown branch config: " + branchName);
+            this.branch = cliBranch;
+        } else {
+            this.branch = new BranchSpec(
+                cfgBranch.type(),
+                cliBranch.start() == null ? cfgBranch.start() : cliBranch.start(),
+                cliBranch.end() == null ? cfgBranch.end() : cliBranch.end(),
+                cfgBranch.versions()
+            );
+        }
+
+        return this;
     }
 
     public void run() throws IOException, GitAPIException {
-        try (Git git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(this.branchName == null ? "main" : this.branchName).call()) {
-            run(git, this.startOver, this.branchName, this.startVer, this.targetVer, this.extraMappings, this.depCache);
-        }
-    }
-
-    private void run(Git git, boolean fresh, String branch, MinecraftVersion startVer, MinecraftVersion targetVer, Path extraMappings, DependencyHashCache depCache) throws IOException, GitAPIException {
-        Files.createDirectories(this.output);
-
-        // Find the current branch in case the command line didn't specify one.
-        var currentBranch = git.getRepository().getBranch();
-        if (branch == null) {
-            if (currentBranch == null)
-                throw new IllegalStateException("Git repository has no HEAD reference");
-            branch = currentBranch;
-        }
-
-        // If we are not in the wanted branch, attempt to switch to it. creating it if necessary
-        if (!branch.equals(currentBranch) && git.getRepository().resolve(Constants.HEAD) != null) {
-            boolean orphan = git.getRepository().resolve(branch) == null;
-            git.checkout().setOrphan(orphan).setName(branch).call();
-            if (orphan)
-                fresh = true;
-        }
-
         var init = new InitTask(this.logger, this.output, git);
-        var src = this.output.resolve("src");
-
-        if (fresh) {
-            // Honestly we could delete the entire output folder minus the .git folder. We should keep the cache outside of the output
-            Util.deleteRecursive(src);
-            init.cleanup();
-
-            git.checkout().setOrphan(true).setName("orphan_temp").call();    // Move to temp branch so we can delete existing one
-            git.branchDelete().setBranchNames(branch).setForce(true).call(); // Delete existing branch
-            git.checkout().setOrphan(true).setName(branch).call();           // Move to correctly named branch
-            git.reset().call(); // Cleans up any files that are in the git repo.
-        }
-
-        // Get the last commit before we run the init's commit
-        var lastVersion = getLastVersion(git);
-
-        // Validate the current metadata, and make initial commit if needed.
-        if (!init.validate(fresh, startVer))
-            return;
 
         var manifest = VersionManifestV2.query();
         if (manifest.versions() == null)
@@ -128,13 +133,21 @@ public class Generator {
             .toList();
         */
 
+        var targetVer = this.branch.end();
+        // If we have explicit filters, apply them
+        if (this.branch.versions() != null) {
+            versions.removeIf(v -> !this.branch.versions().contains(v.id()));
+            if (targetVer == null)
+                targetVer = versions.get(0).id();
+        }
+
         // Find the latest version from the manifest
         if (targetVer == null) {
             var lat = manifest.latest();
             if (lat == null)
                 throw new IllegalStateException("Failed to determine latest version, Manifest does not contain latest entries");
 
-            if (releasesOnly)
+            if (this.branch.type().equals("release"))
                 targetVer = lat.release();
             else {
                 var release = versions.stream().filter(e -> !lat.release().equals(e.id())).findFirst().orElse(null);
@@ -149,6 +162,15 @@ public class Generator {
                     targetVer = snapshot.releaseTime().compareTo(release.releaseTime()) > 0 ? snapshot.id() : release.id();
             }
         }
+
+        var startVer = this.branch.start();
+        if (startVer == null) {
+            startVer = versions.get(versions.size() - 1).id();
+        }
+
+        // Validate the current metadata, and make initial commit if needed.
+        if (!init.validate(startVer))
+            return;
 
         // Build our target list.
         int startIdx = -1;
@@ -167,13 +189,14 @@ public class Generator {
             throw new IllegalStateException("Could not find start and/or end version in version manifest (or they were out of order)");
 
         List<VersionInfo> toGenerate = new ArrayList<>(versions.subList(endIdx, startIdx + 1));
-        if (releasesOnly)
+        if (this.branch.type().equals("release"))
             toGenerate.removeIf(v -> !v.type().equals("release"));
         // Reverse so it's in oldest first
         Collections.reverse(toGenerate);
 
         // Allow resuming by finding the last thing we generated
-        if (lastVersion != null) {
+        var lastVersion = getLastVersion(git);
+        if (lastVersion != null && !init.isInitCommit(lastVersion)) {
             boolean found = false;
             for (int i = 0; i < toGenerate.size(); i++) {
                 if (toGenerate.get(i).id().toString().equals(lastVersion)) {
@@ -200,6 +223,9 @@ public class Generator {
             var version = Version.load(versionCache.resolve("version.json"));
             generate(logger, git, output, versionCache, libs, version, extraMappings, depCache);
         }
+
+        if (toGenerate.isEmpty())
+            this.logger.accept("No versions to process");
     }
 
     private static List<VersionInfo> findVersionsWithMappings(Consumer<String> logger, List<VersionInfo> versions, Path cache, Path extraMappings) throws IOException {
@@ -211,15 +237,15 @@ public class Generator {
             if (!Files.exists(json) || !HashFunction.SHA1.hash(json).equals(ver.sha1()))
                 Util.downloadFile(logger, json, ver.url(), ver.sha1());
 
-            //TODO: Convert extraMappings into a object with 'boolean hasMapping(version, side)' and 'Path getMapping(version, size)'
-            var root = extraMappings.resolve(ver.type()).resolve(ver.id().toString()).resolve("maps");
-            var client = root.resolve("client.txt");
-            var server = root.resolve("server.txt");
-            if (Files.exists(client) && Files.exists(server))
+            var dls = Version.load(json).downloads();
+            if (dls.containsKey("client_mappings") && dls.containsKey("server_mappings"))
                 ret.add(ver);
-            else {
-                var dls = Version.load(json).downloads();
-                if (dls.containsKey("client_mappings") && dls.containsKey("server_mappings"))
+            else if (extraMappings != null) {
+                //TODO: Convert extraMappings into a object with 'boolean hasMapping(version, side)' and 'Path getMapping(version, size)'
+                var root = extraMappings.resolve(ver.type()).resolve(ver.id().toString()).resolve("maps");
+                var client = root.resolve("client.txt");
+                var server = root.resolve("server.txt");
+                if (Files.exists(client) && Files.exists(server))
                     ret.add(ver);
             }
 
@@ -416,5 +442,11 @@ public class Generator {
             key.write(keyF);
         }
         return ret;
+    }
+
+    @Override
+    public void close() throws Exception {
+        if (this.git != null)
+            this.git.close();
     }
 }

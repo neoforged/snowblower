@@ -8,36 +8,31 @@ package net.minecraftforge.snowblower;
 import joptsimple.OptionException;
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
-import joptsimple.OptionSpec;
+import net.minecraftforge.snowblower.data.Config;
+import net.minecraftforge.snowblower.data.Config.BranchSpec;
 import net.minecraftforge.snowblower.util.DependencyHashCache;
 import net.minecraftforge.snowblower.util.Util;
 import net.minecraftforge.srgutils.MinecraftVersion;
-import org.eclipse.jgit.api.errors.GitAPIException;
 
 import java.io.File;
-import java.io.IOException;
-import java.net.URISyntaxException;
-import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Main {
-    private static final MinecraftVersion V1_14_4 = MinecraftVersion.from("1.14.4");
-
-    public static void main(String[] args) throws IOException, GitAPIException, URISyntaxException {
+    public static void main(String[] args) throws Exception {
         OptionParser parser = new OptionParser();
-        OptionSpec<File> outputO = parser.accepts("output", "Output directory to put the git directory in").withRequiredArg().ofType(File.class).required();
-        OptionSpec<File> cacheO = parser.accepts("cache", "Cache directory to hold all files related to a version. If omitted, goes to ./cache.")
-                .withRequiredArg().ofType(File.class);
-        OptionSpec<File> extraMappingsO = parser.accepts("extra-mappings", "When set, points to a directory with extra mappings files").withRequiredArg().ofType(File.class);
-        OptionSpec<String> startVerO = parser.accepts("start-ver", "The starting Minecraft version to generate from (inclusive)").withRequiredArg().ofType(String.class).defaultsTo(V1_14_4.toString());
-        OptionSpec<String> targetVerO = parser.accepts("target-ver", "The target Minecraft version to generate up to (inclusive). If omitted, defaults to \"latest\" while respecting --releases-only")
-                .withRequiredArg().ofType(String.class).defaultsTo("latest");
-        OptionSpec<String> branchNameO = parser.acceptsAll(List.of("branch-name", "branch"), "The Git branch name, creating an orphan branch if it does not exist. Uses checked out branch if omitted")
-                .withRequiredArg().ofType(String.class);
-        OptionSpec<Void> releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
-        OptionSpec<Void> startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
+        var outputO = parser.accepts("output", "Output directory to put the git directory in").withRequiredArg().ofType(File.class).required();
+        var cacheO = parser.accepts("cache", "Cache directory to hold all files related to a version. If omitted, goes to ./cache").withRequiredArg().ofType(File.class);
+        var extraMappingsO = parser.accepts("extra-mappings", "When set, points to a directory with extra mappings files").withRequiredArg().ofType(File.class);
+        var startVerO = parser.accepts("start-ver", "The starting Minecraft version to generate from (inclusive). If omitted, defaultys to oldest while respecting --releases-only").withRequiredArg();
+        var targetVerO = parser.accepts("target-ver", "The target Minecraft version to generate up to (inclusive). If omitted, defaults to latest while respecting --releases-only").withRequiredArg();
+        var branchNameO = parser.acceptsAll(List.of("branch-name", "branch"), "The Git branch name, creating an orphan branch if it does not exist. Uses checked out branch if omitted").withRequiredArg();
+        var releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
+        var startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
+        var configO = parser.accepts("cfg", "Config file for SnowBlower").withRequiredArg().ofType(File.class);
 
         OptionSet options;
         try {
@@ -50,26 +45,39 @@ public class Main {
             return;
         }
 
+        var depHashCacheUrl = Main.class.getResource("/dependency_hashes.txt");
+        if (depHashCacheUrl == null)
+            throw new IllegalStateException("Could not find dependency_hashes.txt on classpath");
+        var depCache = DependencyHashCache.load(Util.getPath(depHashCacheUrl.toURI()));
+
         File output = options.valueOf(outputO);
         File cache = options.valueOf(cacheO);
         Path cachePath = cache == null ? Paths.get("cache"): cache.toPath();
         File extraMappings = options.valueOf(extraMappingsO);
         Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath();
         boolean startOver = options.has(startOverO);
-        MinecraftVersion startVer = MinecraftVersion.from(options.valueOf(startVerO));
-        // if (startVer.compareTo(V1_14_4) < 0)
-        //     throw new IllegalArgumentException("Start version must be greater than or equal to 1.14.4");
-        String targetVerStr = options.valueOf(targetVerO);
-        MinecraftVersion targetVer = targetVerStr.equalsIgnoreCase("latest") ? null : MinecraftVersion.from(targetVerStr);
+
+        var startVer = options.has(startVerO) ? MinecraftVersion.from(options.valueOf(startVerO)) : null;
+        var targetVer = options.has(targetVerO) ? MinecraftVersion.from(options.valueOf(targetVerO)) : null;
         if (targetVer != null && targetVer.compareTo(startVer) < 0)
             throw new IllegalArgumentException("Target version must be greater than or equal to start version");
-        String branchName = options.valueOf(branchNameO);
-        boolean releasesOnly = options.has(releasesOnlyO);
-        URL depHashCacheUrl = Main.class.getResource("/dependency_hashes.txt");
-        if (depHashCacheUrl == null)
-            throw new IllegalStateException("Could not find dependency_hashes.txt on classpath");
-        DependencyHashCache depCache = DependencyHashCache.load(Util.getPath(depHashCacheUrl.toURI()));
+        var cliBranch = new BranchSpec(options.has(releasesOnlyO) ? "release" : "all", startVer, targetVer, null);
 
-        new Generator(output.toPath(), cachePath, extraMappingsPath, startVer, targetVer, branchName, startOver, releasesOnly, depCache, System.out::println).run();
+        String branchName = options.valueOf(branchNameO);
+
+        Config cfg = null;
+        if (options.has(configO)) {
+            cfg = Config.load(options.valueOf(configO).toPath());
+        } else {
+            Map<String, BranchSpec> branches = new HashMap<>();
+            branches.put("release", new BranchSpec("release", null, null, null));
+            branches.put("dev", new BranchSpec("all", null, null, null));
+            cfg = new Config(branches);
+        }
+
+        try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache)) {
+            gen.setup(branchName, cfg, cliBranch, startOver);
+            gen.run();
+        }
     }
 }

@@ -36,6 +36,7 @@ import net.minecraftforge.snowblower.util.Util;
 import net.minecraftforge.srgutils.MinecraftVersion;
 
 public class InitTask {
+    private static final String COMMIT_MESSAGE = "Initial commit";
     private final Consumer<String> logger;
     private final Path root;
     private final Git git;
@@ -56,7 +57,7 @@ public class InitTask {
         }
     }
 
-    public boolean validate(boolean fresh, MinecraftVersion start) throws IOException, GitAPIException {
+    public boolean validate(MinecraftVersion start) throws IOException, GitAPIException {
         var meta = new Cache().comment(
             "Source files created by Snowblower",
             "https://github.com/MinecraftForge/Snowblower")
@@ -64,14 +65,14 @@ public class InitTask {
             .put("Start", start.toString());
 
         var metaPath = root.resolve("Snowblower.txt");
-        if (!fresh && !meta.isValid(metaPath)) {
+        if (Files.exists(metaPath) && !meta.isValid(metaPath)) {
             logger.accept("The starting commit on this branch does not have matching metadata.");
             logger.accept("This could be due to a different Snowblower version or a different starting Minecraft version.");
             logger.accept("Please choose a different branch with --branch or add the --start-over flag and try again.");
             return false;
         }
 
-        if (fresh || !Files.exists(metaPath)) {
+        if (!Files.exists(metaPath)) {
             // Create metadata file
             meta.write(metaPath);
             Util.add(git, metaPath);
@@ -149,7 +150,7 @@ public class InitTask {
                 posixFileAttributeView.setPermissions(perms);
             }
 
-            Util.commit(git, "Initial commit", new Date(1));
+            Util.commit(git, COMMIT_MESSAGE, new Date(1));
         }
 
         return true;
@@ -177,5 +178,9 @@ public class InitTask {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public boolean isInitCommit(String message) {
+        return COMMIT_MESSAGE.equals(message);
     }
 }
