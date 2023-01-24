@@ -5,3 +5,4 @@ net.minecraftforge:srgutils=4f577f14f18a8b53b7e7da105952d4d664aafa48 # 0.4.13
 net.minecraftforge:mergetool=e31dad26696043b540681aabc93e2001a1a2cd44 # 1.1.5
 net.minecraftforge:ForgeAutoRenamingTool=afc3c5dfec2817ddb96ae2a23ff552508eb77a71 # 0.1.24
 net.minecraftforge:forgeflower=dac8c122615a3d3d3df1e906c07692c7ce844c5e # 2.0.605.3
+net.minecraftforge:installertools=f7b0385795824cfdadec61cd310579d4f6280f22 # 1.3.2

@@ -22,7 +22,7 @@ import net.minecraftforge.srgutils.IMappingFile;
 public class MergeTask {
     public static Path getJoinedJar(Consumer<String> logger, Path cache, Version version, Path mappings, DependencyHashCache depCache) throws IOException {
         var clientJar = getJar(logger, "client", cache, version);
-        var serverJar = getJar(logger, "server", cache, version);
+        var serverJar = BundlerExtractTask.getExtractedServerJar(logger, cache, getJar(logger, "server", cache, version), depCache);
 
         var key = new Cache()
             .put(Tools.MERGETOOL, depCache)
