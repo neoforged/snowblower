@@ -35,6 +35,7 @@ import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
@@ -303,9 +304,20 @@ public class Generator implements AutoCloseable {
                         var target = (p.toString().endsWith(".java") ? java : resources).resolve(relative.toString());
 
                         if (existingFiles.remove(target)) {
-                            var existing = HashFunction.MD5.hash(target);
-                            var created = HashFunction.MD5.hash(p);
-                            if (!existing.equals(created)) {
+                            boolean copy;
+                            Path realPath = target.toRealPath(LinkOption.NOFOLLOW_LINKS);
+                            if (!realPath.toString().equals(target.toString())) {
+                                Files.delete(realPath);
+                                removed.add(realPath);
+                                added.add(target);
+                                copy = true;
+                            } else {
+                                var existing = HashFunction.MD5.hash(target);
+                                var created = HashFunction.MD5.hash(p);
+                                copy = !existing.equals(created);
+                            }
+
+                            if (copy) {
                                 Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
                                 added.add(target);
                             }
