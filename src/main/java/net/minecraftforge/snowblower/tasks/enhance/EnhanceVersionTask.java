@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import net.minecraftforge.snowblower.data.Version;
 import net.minecraftforge.snowblower.util.HashFunction;
@@ -20,6 +21,11 @@ public class EnhanceVersionTask {
     // TODO: I moved this out to its own package even tho its only one function, because I'm curious if we can cache it.
     // And doing that via a package level would be useful.
 
+    /**
+     * Extra compile-only dependencies that are stripped from the version json.
+     * Adding these to all generated Minecraft versions should be mostly safe.
+     */
+    private static final List<String> EXTRA_DEPENDENCIES = List.of("org.jetbrains:annotations:24.0.0", "com.google.code.findbugs:jsr305:3.0.2");
     private static final String GRADLE_CONTENT = """
     plugins {
         id 'java'
@@ -47,10 +53,11 @@ public class EnhanceVersionTask {
     public static List<Path> enhance(Path output, Version version) throws IOException {
         var data = GRADLE_CONTENT
             .replace("%java_version%", Integer.toString(version.javaVersion().majorVersion())) // This assumes the minimum to be 8 (which it is)
-            .replace("%deps%", version.libraries().stream()
-                    .filter(Version.Library::isAllowed)
+            .replace("%deps%", Stream.concat(version.libraries().stream()
+                            .filter(Version.Library::isAllowed)
+                            .map(Version.Library::name), EXTRA_DEPENDENCIES.stream())
                     .sorted()
-                    .map(lib -> "    implementation '" + lib.name() + '\'')
+                    .map(lib -> "    implementation '" + lib + '\'')
                     .collect(Collectors.joining("\n")))
             .getBytes(StandardCharsets.UTF_8);
 
