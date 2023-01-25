@@ -15,6 +15,9 @@ import net.minecraftforge.snowblower.util.Util;
 import net.minecraftforge.srgutils.MinecraftVersion;
 
 import java.io.File;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
@@ -29,10 +32,11 @@ public class Main {
         var extraMappingsO = parser.accepts("extra-mappings", "When set, points to a directory with extra mappings files").withRequiredArg().ofType(File.class);
         var startVerO = parser.accepts("start-ver", "The starting Minecraft version to generate from (inclusive). If omitted, defaultys to oldest while respecting --releases-only").withRequiredArg();
         var targetVerO = parser.accepts("target-ver", "The target Minecraft version to generate up to (inclusive). If omitted, defaults to latest while respecting --releases-only").withRequiredArg();
-        var branchNameO = parser.acceptsAll(List.of("branch-name", "branch"), "The Git branch name, creating an orphan branch if it does not exist. Uses checked out branch if omitted").withRequiredArg();
+        var branchNameO =
+                parser.acceptsAll(List.of("branch-name", "branch"), "The Git branch name, creating an orphan branch if it does not exist. Uses checked out branch if omitted").withRequiredArg();
         var releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
         var startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
-        var configO = parser.accepts("cfg", "Config file for SnowBlower").withRequiredArg().ofType(File.class);
+        var configO = parser.accepts("cfg", "Config file for SnowBlower").withRequiredArg().ofType(URI.class);
 
         OptionSet options;
         try {
@@ -52,7 +56,7 @@ public class Main {
 
         File output = options.valueOf(outputO);
         File cache = options.valueOf(cacheO);
-        Path cachePath = cache == null ? Paths.get("cache"): cache.toPath();
+        Path cachePath = cache == null ? Paths.get("cache") : cache.toPath();
         File extraMappings = options.valueOf(extraMappingsO);
         Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath();
         boolean startOver = options.has(startOverO);
@@ -65,9 +69,15 @@ public class Main {
 
         String branchName = options.valueOf(branchNameO);
 
-        Config cfg = null;
+        Config cfg;
         if (options.has(configO)) {
-            cfg = Config.load(options.valueOf(configO).toPath());
+            URI configUri = options.valueOf(configO);
+            try {
+                URL url = configUri.toURL();
+                cfg = Util.downloadJson(url, Config.class);
+            } catch (MalformedURLException e) {
+                cfg = Config.load(Util.getPath(configUri));
+            }
         } else {
             Map<String, BranchSpec> branches = new HashMap<>();
             branches.put("release", new BranchSpec("release", null, null, null));
