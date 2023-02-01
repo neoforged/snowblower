@@ -87,7 +87,8 @@ public class InitTask {
                 "*.bin binary",
                 "*.png binary",
                 "*.gif binary",
-                "*.nbt binary"
+                "*.nbt binary",
+                "*.ogg binary"
             );
             Util.add(git, attrs);
 

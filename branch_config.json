@@ -1,0 +1,15 @@
+{
+    "branches": {
+        "dev":     { "type": "all" },
+        "release": { "type": "release" },
+        "april": {
+            "type": "all",
+            "versions": [
+                "20w13b",
+                "20w14infinite",
+                "22w12a",
+                "22w13oneblockatatime"
+            ]
+        }
+    }
+}

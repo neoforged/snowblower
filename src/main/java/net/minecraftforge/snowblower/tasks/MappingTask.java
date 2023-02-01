@@ -59,7 +59,6 @@ public class MappingTask {
         var mappings = cache.resolve(type + "_mappings.txt");
 
         if (!Files.exists(mappings)) {
-            logger.accept("  Downloading " + type + " mappings");
             boolean copiedFromExtra = false;
 
             if (extraMappings != null) {

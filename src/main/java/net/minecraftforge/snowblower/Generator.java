@@ -137,7 +137,7 @@ public class Generator implements AutoCloseable {
         var targetVer = this.branch.end();
         // If we have explicit filters, apply them
         if (this.branch.versions() != null) {
-            versions.removeIf(v -> !this.branch.versions().contains(v.id()));
+            versions = versions.stream().filter(v -> this.branch.versions().contains(v.id())).toList();
             if (targetVer == null)
                 targetVer = versions.get(0).id();
         }
