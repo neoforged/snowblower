@@ -1,4 +1,5 @@
 import net.minecraftforge.snowblower.gradle.DependencyHashingTask
+import net.minecraftforge.snowblower.gradle.ShadowJarFixupTask
 
 plugins {
     id 'java'
@@ -44,6 +45,12 @@ tasks.register('generateDependencyHashes', DependencyHashingTask) {
     output = file('src/main/generated_resources/dependency_hashes.txt')
 }
 
+tasks.register('shadowJarFixup', ShadowJarFixupTask) {
+    outputs.upToDateWhen { false }
+    input = shadowJar.archiveFile
+    output = shadowJar.archiveFile
+}
+
 sourceSets {
     main {
         resources {
@@ -56,6 +63,9 @@ processResources {
     dependsOn tasks.named('generateDependencyHashes')
     from 'gradlew'
     from 'gradlew.bat'
+}
+
+jar {
     from('gradle') {
         into 'gradle'
     }
@@ -77,7 +87,14 @@ shadowJar {
     archiveClassifier = 'all'
     configurations = [project.configurations.shade]
 
+    from('gradle') {
+        into 'gradle'
+        rename '(.+).jar', '$1.zip'
+    }
+
     minimize()
+
+    finalizedBy 'shadowJarFixup'
 }
 
 artifacts {
