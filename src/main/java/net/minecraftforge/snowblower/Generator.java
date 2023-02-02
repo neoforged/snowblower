@@ -60,9 +60,9 @@ public class Generator implements AutoCloseable {
     private Config.BranchSpec branch;
 
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache) {
-        this.output = output;
-        this.cache = cache;
-        this.extraMappings = extraMappings;
+        this.output = output.toAbsolutePath();
+        this.cache = cache.toAbsolutePath();
+        this.extraMappings = extraMappings == null ? null : extraMappings.toAbsolutePath();
         this.depCache = depCache;
     }
 
