@@ -56,9 +56,9 @@ public class Main {
 
         File output = options.valueOf(outputO);
         File cache = options.valueOf(cacheO);
-        Path cachePath = cache == null ? Paths.get("cache") : cache.toPath();
+        Path cachePath = (cache == null ? Paths.get("cache") : cache.toPath()).toAbsolutePath();
         File extraMappings = options.valueOf(extraMappingsO);
-        Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath();
+        Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath().toAbsolutePath();
         boolean startOver = options.has(startOverO);
 
         var startVer = options.has(startVerO) ? MinecraftVersion.from(options.valueOf(startVerO)) : null;

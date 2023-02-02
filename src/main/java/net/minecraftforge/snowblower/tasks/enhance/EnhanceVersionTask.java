@@ -23,9 +23,10 @@ public class EnhanceVersionTask {
 
     /**
      * Extra compile-only dependencies that are stripped from the version json.
+     * This also includes dependencies with bad OS filtering rules when they are needed on all systems for compiling.
      * Adding these to all generated Minecraft versions should be mostly safe.
      */
-    private static final List<String> EXTRA_DEPENDENCIES = List.of("org.jetbrains:annotations:24.0.0", "com.google.code.findbugs:jsr305:3.0.2");
+    private static final List<String> EXTRA_DEPENDENCIES = List.of("org.jetbrains:annotations:24.0.0", "com.google.code.findbugs:jsr305:3.0.2", "ca.weblite:java-objc-bridge:1.1");
     private static final String GRADLE_CONTENT = """
     plugins {
         id 'java'
