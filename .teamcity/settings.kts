@@ -37,6 +37,7 @@ project {
         text("env.PUBLISHED_JAVA_ARTIFACT_ID", "Snowblower", label = "Published artifact id", description = "The maven coordinate artifact id that has been published by this build. Can not be empty.", allowEmpty = false)
         text("env.PUBLISHED_JAVA_GROUP", "net.minecraftforge", label = "Published group", description = "The maven coordinate group that has been published by this build. Can not be empty.", allowEmpty = false)
         text("docker_gradle_version", "7.6")
+        text("docker_jdk_version", "17")
     }
 
     features {
