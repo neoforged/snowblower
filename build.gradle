@@ -117,3 +117,7 @@ publishing {
         maven gradleutils.getPublishingForgeMaven()
     }
 }
+
+changelog {
+    fromCommit "4f8480ec50cc76a562230245170172bc84777d3a"
+}
