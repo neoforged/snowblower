@@ -60,9 +60,9 @@ public class Generator implements AutoCloseable {
     private Config.BranchSpec branch;
 
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache) {
-        this.output = output.toAbsolutePath();
-        this.cache = cache.toAbsolutePath();
-        this.extraMappings = extraMappings == null ? null : extraMappings.toAbsolutePath();
+        this.output = output.toAbsolutePath().normalize();
+        this.cache = cache.toAbsolutePath().normalize();
+        this.extraMappings = extraMappings == null ? null : extraMappings.toAbsolutePath().normalize();
         this.depCache = depCache;
     }
 
@@ -125,7 +125,7 @@ public class Generator implements AutoCloseable {
 
         var manifest = VersionManifestV2.query();
         if (manifest.versions() == null)
-            throw new IllegalStateException("Failed to find versions, manifest mising versions listing");
+            throw new IllegalStateException("Failed to find versions, manifest missing versions listing");
 
         var versions = Arrays.asList(manifest.versions());
         /* Sort the list by release time.. in case Mojang screwed it up?

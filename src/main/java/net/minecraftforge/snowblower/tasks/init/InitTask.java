@@ -151,7 +151,8 @@ public class InitTask {
                 posixFileAttributeView.setPermissions(perms);
             }
 
-            Util.commit(git, COMMIT_MESSAGE, new Date(1));
+            // Oldest release timestamp in the Mojang version manifest (that number itself is an approximation but whatever)
+            Util.commit(git, COMMIT_MESSAGE, new Date(1242245460000L));
         }
 
         return true;
