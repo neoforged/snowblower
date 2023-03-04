@@ -6,22 +6,27 @@
 package net.minecraftforge.snowblower.util;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import org.eclipse.jgit.api.Git;
@@ -35,11 +40,16 @@ import com.google.gson.JsonDeserializer;
 import net.minecraftforge.snowblower.Main;
 import net.minecraftforge.snowblower.data.Version;
 import net.minecraftforge.srgutils.MinecraftVersion;
+import org.jetbrains.annotations.Nullable;
 
 public class Util {
     public static final Gson GSON = new GsonBuilder()
         .registerTypeAdapter(MinecraftVersion.class, (JsonDeserializer<MinecraftVersion>) (json, typeOfT, context) -> MinecraftVersion.from(json.getAsString()))
         .create();
+    public static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+        .connectTimeout(Duration.of(5, ChronoUnit.SECONDS))
+        .followRedirects(HttpClient.Redirect.NORMAL)
+        .build();
 
     public static Path getPath(URI uri) {
         try {
@@ -93,26 +103,15 @@ public class Util {
         if (download == null)
             return false;
 
-        return downloadFile(logger, output, download.url(), download.sha1());
+        downloadFile(logger, output, download.url(), download.sha1());
+
+        return true;
     }
 
-    public static boolean downloadFile(Consumer<String> logger, Path file, URL url, String sha1) throws IOException {
-        logger.accept("  Downloading " + url.toString());
-        var connection = (HttpURLConnection) url.openConnection();
-        connection.setUseCaches(false);
-        connection.setDefaultUseCaches(false);
-        connection.setRequestProperty("Cache-Control", "no-store,max-age=0,no-cache");
-        connection.setRequestProperty("Expires", "0");
-        connection.setRequestProperty("Pragma", "no-cache");
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(5000);
-        connection.connect();
-
+    public static void downloadFile(Consumer<String> logger, Path file, URL url, @Nullable String sha1) throws IOException {
         Files.createDirectories(file.getParent());
-        try (InputStream in = connection.getInputStream();
-             OutputStream out = Files.newOutputStream(file)) {
-            copy(in, out);
-        }
+
+        download(logger, url, () -> HttpResponse.BodyHandlers.ofFile(file));
 
         if (sha1 != null) {
             var actual = HashFunction.SHA1.hash(file);
@@ -123,32 +122,76 @@ public class Util {
                         "    Actual: " + actual);
             }
         }
-
-        return true;
     }
 
-    public static <T> T downloadJson(URL url, Class<T> type) throws IOException {
-        // TODO Make a util function that controls the cache, and allows redirects?
-        var connection = (HttpURLConnection)url.openConnection();
-        connection.setUseCaches(false);
-        connection.setDefaultUseCaches(false);
-        connection.setRequestProperty("Cache-Control", "no-store,max-age=0,no-cache");
-        connection.setRequestProperty("Expires", "0");
-        connection.setRequestProperty("Pragma", "no-cache");
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(5000);
-        connection.connect();
+    private static <T> HttpResponse<T> download(Consumer<String> logger, URL url, Supplier<HttpResponse.BodyHandler<T>> bodyHandlerFactory) throws IOException {
+        logger.accept("  Downloading " + url);
+        int maxAttempts = 10;
+        int attempts = 1;
+        long waitTime = 1_000L;
+        URI uri;
+        try {
+            uri = url.toURI();
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
 
-        try (var in = new InputStreamReader(connection.getInputStream())) {
-            return GSON.fromJson(in, type);
+        HttpRequest httpRequest = getHttpRequest(uri);
+
+        while (true) {
+            IOException ioException = null;
+            HttpResponse<T> httpResponse = null;
+
+            try {
+                httpResponse = HTTP_CLIENT.send(httpRequest, bodyHandlerFactory.get());
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } catch (IOException e) {
+                ioException = e;
+            }
+
+            if (httpResponse == null || httpResponse.statusCode() != HttpURLConnection.HTTP_OK) {
+                if (attempts == maxAttempts) {
+                    String errorMessage = "    Failed to download " + url + " - exceeded max attempts of " + maxAttempts;
+                    if (ioException != null) {
+                        throw new IOException(errorMessage, ioException);
+                    } else if (httpResponse != null) {
+                        throw new IOException(errorMessage + ", response code: " + httpResponse.statusCode());
+                    } else {
+                        throw new IOException(errorMessage);
+                    }
+                }
+
+                String error = httpResponse == null ? Objects.toString(ioException) : "HTTP Response Code " + httpResponse.statusCode();
+                logger.accept("    Failed to download, attempt: " + attempts + "/" + maxAttempts + ", error: " + error + ", retrying in " + waitTime + " ms...");
+                try {
+                    Thread.sleep(waitTime);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+                waitTime = waitTime * ((long) Math.pow(2, attempts));
+
+                attempts++;
+
+                continue;
+            }
+
+            return httpResponse;
         }
     }
 
-    private static void copy(InputStream input, OutputStream output) throws IOException {
-        byte[] buf = new byte[0x100];
-        int cnt;
-        while ((cnt = input.read(buf, 0, buf.length)) != -1) {
-            output.write(buf, 0, cnt);
+    private static HttpRequest getHttpRequest(URI uri) {
+        return HttpRequest.newBuilder(uri)
+                .header("Cache-Control", "no-store,max-age=0,no-cache")
+                .header("Expires", "0")
+                .header("Pragma", "no-cache")
+                .GET()
+                .build();
+    }
+
+    public static <T> T downloadJson(Consumer<String> logger, URL url, Class<T> type) throws IOException {
+        try (var in = new InputStreamReader(download(logger, url, HttpResponse.BodyHandlers::ofInputStream).body())) {
+            return GSON.fromJson(in, type);
         }
     }
 

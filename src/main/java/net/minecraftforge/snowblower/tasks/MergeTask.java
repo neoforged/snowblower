@@ -63,8 +63,12 @@ public class MergeTask {
             .put(type, dl.sha1());
 
         if (!Files.exists(jar) || !key.isValid(keyF)) {
-            if (!Util.downloadFile(logger, jar, dl.url(), dl.sha1()))
-                throw new IllegalStateException("Failed to download " + type + " jar");
+            try {
+                Util.downloadFile(logger, jar, dl.url(), dl.sha1());
+            } catch (IOException e) {
+                throw new IOException("Failed to download " + type + " jar", e);
+            }
+
             key.put(type, jar);
             key.write(keyF);
         }

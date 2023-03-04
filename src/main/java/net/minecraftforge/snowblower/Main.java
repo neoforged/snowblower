@@ -74,7 +74,7 @@ public class Main {
             URI configUri = options.valueOf(configO);
             try {
                 URL url = configUri.toURL();
-                cfg = Util.downloadJson(url, Config.class);
+                cfg = Util.downloadJson(s -> {}, url, Config.class);
             } catch (MalformedURLException e) {
                 cfg = Config.load(Util.getPath(configUri));
             }

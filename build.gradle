@@ -29,6 +29,8 @@ configurations {
 }
 
 dependencies {
+    compileOnly 'org.jetbrains:annotations:24.0.0'
+
     // When updating shade dependencies, you must also run the generateDependencyHashes task
     shade 'org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r'
     shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'

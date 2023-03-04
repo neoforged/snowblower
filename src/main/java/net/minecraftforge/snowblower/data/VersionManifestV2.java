@@ -15,9 +15,10 @@ import java.util.Date;
 public record VersionManifestV2(
     LatestInfo latest,
     VersionInfo[] versions) {
+    private static final URL VERSION_MANIFEST_V2_URL = Util.makeURL("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json");
 
     public static VersionManifestV2 query() throws IOException {
-        return Util.downloadJson(Util.makeURL("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"), VersionManifestV2.class);
+        return Util.downloadJson(s -> {}, VERSION_MANIFEST_V2_URL, VersionManifestV2.class);
     }
 
     public record LatestInfo(

@@ -28,10 +28,6 @@ public record Version(
     List<Library> libraries,
     JavaVersion javaVersion) {
 
-    public static Version query(URL url) throws IOException {
-        return Util.downloadJson(url, Version.class);
-    }
-
     public static Version load(Path file) throws IOException {
         try (var in = new InputStreamReader(Files.newInputStream(file))) {
             return Util.GSON.fromJson(in, Version.class);
