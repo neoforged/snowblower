@@ -29,6 +29,8 @@ import org.eclipse.jgit.api.ResetCommand.ResetType;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.lib.Constants;
+import org.eclipse.jgit.transport.RefSpec;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
 import java.io.IOException;
@@ -57,6 +59,8 @@ public class Generator implements AutoCloseable {
     private final Consumer<String> logger = System.out::println;
 
     private Git git;
+    private String remoteName;
+    private String branchName;
     private Config.BranchSpec branch;
 
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache) {
@@ -66,7 +70,7 @@ public class Generator implements AutoCloseable {
         this.depCache = depCache;
     }
 
-    public Generator setup(String branchName, Config cfg, BranchSpec cliBranch, boolean fresh) throws IOException, GitAPIException {
+    public Generator setup(String branchName, @Nullable String remoteName, Config cfg, BranchSpec cliBranch, boolean fresh) throws IOException, GitAPIException {
         try {
             this.git = Git.open(this.output.toFile());
             // Find the current branch in case the command line didn't specify one.
@@ -102,6 +106,11 @@ public class Generator implements AutoCloseable {
             Util.deleteRecursive(this.output);
             this.git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(branchName).call();
         }
+
+        if (remoteName != null && git.remoteList().call().stream().noneMatch(it -> it.getName().equals(remoteName)))
+            throw new IllegalArgumentException("Unknown remote: " + remoteName);
+        this.remoteName = remoteName;
+        this.branchName = branchName;
 
         var cfgBranch = cfg.branches() == null ? null : cfg.branches().get(branchName);
         if (cfgBranch == null) {
@@ -223,10 +232,22 @@ public class Generator implements AutoCloseable {
             this.logger.accept("[" + (x + 1) + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
             var version = Version.load(versionCache.resolve("version.json"));
             generate(logger, git, output, versionCache, libs, version, extraMappings, depCache);
+
+            if (x % 10 == 9) { // Push every 10 versions
+                attemptPush("Pushing 10 versions to remote.");
+            }
         }
+        attemptPush("Pushing remaining versions to remote."); // In case there are any remaining versions to push
 
         if (toGenerate.isEmpty())
             this.logger.accept("No versions to process");
+    }
+
+    private void attemptPush(String message) throws GitAPIException {
+        if (remoteName != null) {
+            git.push().setRemote(remoteName).setRefSpecs(new RefSpec(branchName + ":" + branchName)).call();
+            this.logger.accept(message);
+        }
     }
 
     private static List<VersionInfo> findVersionsWithMappings(Consumer<String> logger, List<VersionInfo> versions, Path cache, Path extraMappings) throws IOException {

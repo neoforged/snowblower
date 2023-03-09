@@ -37,6 +37,7 @@ public class Main {
         var releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
         var startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
         var configO = parser.accepts("cfg", "Config file for SnowBlower").withRequiredArg().ofType(URI.class);
+        var pushO = parser.accepts("push", "The name of the remote to push to. If omitted the output will not be pushed").withOptionalArg();
 
         OptionSet options;
         try {
@@ -86,7 +87,7 @@ public class Main {
         }
 
         try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache)) {
-            gen.setup(branchName, cfg, cliBranch, startOver);
+            gen.setup(branchName, options.valueOf(pushO), cfg, cliBranch, startOver);
             gen.run();
         }
     }
