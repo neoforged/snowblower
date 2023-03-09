@@ -30,6 +30,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.transport.RefSpec;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
@@ -45,11 +46,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.Spliterators;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 public class Generator implements AutoCloseable {
     private final Path output;
@@ -245,8 +249,21 @@ public class Generator implements AutoCloseable {
 
     private void attemptPush(String message) throws GitAPIException {
         if (remoteName != null) {
-            git.push().setRemote(remoteName).setRefSpecs(new RefSpec(branchName + ":" + branchName)).call();
-            this.logger.accept(message);
+            final var result = git.push()
+                    .setRemote(remoteName)
+                    .setForce(true)
+                    .setRefSpecs(new RefSpec(branchName + ":" + branchName))
+                    .call();
+            StreamSupport.stream(result.spliterator(), false)
+                    .map(res -> res.getRemoteUpdate("refs/heads/" + branchName))
+                    .filter(Objects::nonNull)
+                    .findFirst().ifPresentOrElse(remoteRefUpdate -> {
+                        this.logger.accept(switch (remoteRefUpdate.getStatus()) {
+                            case OK -> message;
+                            case UP_TO_DATE -> "Attempted to push to remote, but local branch was up-to-date.";
+                            default -> "Could not push to remote: status: " + remoteRefUpdate.getStatus() + ", message: " + remoteRefUpdate.getMessage();
+                        });
+                    }, () -> this.logger.accept("Attempted to push to remote, but failed."));
         }
     }
 

@@ -37,7 +37,7 @@ public class Main {
         var releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
         var startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
         var configO = parser.accepts("cfg", "Config file for SnowBlower").withRequiredArg().ofType(URI.class);
-        var pushO = parser.accepts("push", "The name of the remote to push to. If omitted the output will not be pushed").withOptionalArg();
+        var pushO = parser.accepts("push", "The name of the remote to push to. If omitted, the output will not be pushed").withRequiredArg();
 
         OptionSet options;
         try {
