@@ -66,6 +66,8 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 public class Generator implements AutoCloseable {
+    public static final int COMMIT_BATCH_SIZE = 10;
+
     private final Path output;
     private final Path cache;
     private final Path extraMappings;
@@ -321,8 +323,8 @@ public class Generator implements AutoCloseable {
             var version = Version.load(versionCache.resolve("version.json"));
             generate(logger, git, output, versionCache, libs, version, extraMappings, depCache);
 
-            if (x % 10 == 9) { // Push every 10 versions
-                attemptPush("Pushing 10 versions to remote.");
+            if (x % COMMIT_BATCH_SIZE == (COMMIT_BATCH_SIZE - 1)) { // Push every X versions
+                attemptPush("Pushing " + COMMIT_BATCH_SIZE + " versions to remote.");
             }
         }
 
@@ -338,23 +340,45 @@ public class Generator implements AutoCloseable {
         final ObjectId remoteBranch = git.getRepository().resolve("refs/remotes/" + remoteName + "/" + branchName);
         if (remoteBranch == null) return;
 
+        // The commits go newer -> older (e.g. 0 -> first, 100 -> last)
         final List<RevCommit> ourCommits = new ArrayList<>();
         git.log().setMaxCount(Integer.MAX_VALUE).call().forEach(ourCommits::add);
+
+        @FunctionalInterface
+        interface Pusher {
+            void push(int endIndex) throws GitAPIException;
+        }
+
+        final Pusher pusher = idx -> {
+            // We want to push the newest X commits so create a sublist of those commits starting from the newest one
+            final var commits = ourCommits.subList(0, idx).stream()
+                    .collect(Util.partitionEvery(COMMIT_BATCH_SIZE)) // Partition those into lists of maximum 10 commits so we properly batch
+                    .entrySet().stream() // Stream the entry set
+                    .sorted(Comparator.<Map.Entry<Integer, List<RevCommit>>, Integer>comparing(Map.Entry::getKey).reversed()) // Make sure the lists are in the other way around (we want to push the oldest first as pushing a commit pushes all commits before it)
+                    .map(Map.Entry::getValue)
+                    .filter(Predicate.not(List::isEmpty)) // This shouldn't ever happen but just in case
+                    .toList();
+            // Iterate over the commits and push them
+            for (final var notPushed : commits) {
+                attemptPush("Pushed " + notPushed.size() + " old commits.", new RefSpec(notPushed.get(0).getId().getName() + ":refs/heads/" + this.branchName));
+            }
+        };
+
+        boolean foundCommonAncestor = false;
+        // Walk all commits on the remote branch (newest -> oldest)
         for (final RevCommit commit : git.log().add(remoteBranch).setMaxCount(Integer.MAX_VALUE).call()) {
             final int idx = ourCommits.indexOf(commit);
             if (idx == 0) break; // If it is the first commit, the branch is up-to-date
+            // If we find the common ancestor that is NOT the first commit push
             else if (idx > 0) {
-                for (final var notPushed : ourCommits.subList(0, idx).stream()
-                        .collect(Util.partitionEvery(10))
-                        .entrySet().stream()
-                        .sorted(Comparator.comparing(Map.Entry::getKey))
-                        .map(Map.Entry::getValue)
-                        .filter(Predicate.not(List::isEmpty))
-                        .toList()) {
-                    attemptPush("Pushed " + notPushed.size() + " old commits.", new RefSpec(notPushed.get(0).getId().getName() + ":refs/heads/" + this.branchName));
-                }
+                pusher.push(idx);
+                foundCommonAncestor = true;
                 break; // We've found the common commit, break
             }
+        }
+
+        if (!foundCommonAncestor) { // We haven't found a common ancestor so let's force push all commits
+            pusher.push(ourCommits.size());
         }
     }
 
