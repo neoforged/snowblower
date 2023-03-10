@@ -54,6 +54,7 @@ public class Util {
         .connectTimeout(Duration.of(5, ChronoUnit.SECONDS))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
+    public static final PersonIdent SNOWFORGE = new PersonIdent("snowforge[bot]", "127516132+snowforge[bot]@users.noreply.github.com");
 
     public static Path getPath(URI uri) {
         try {
@@ -215,8 +216,7 @@ public class Util {
     }
 
     public static void commit(Git git, String message, Date time) throws GitAPIException {
-        var snowblower = new PersonIdent("SnowBlower", "snow@blower.com");
-        var timed = new PersonIdent(snowblower, time);
+        var timed = new PersonIdent(SNOWFORGE, time);
         git.commit()
             .setMessage(message)
             .setAuthor(timed)
