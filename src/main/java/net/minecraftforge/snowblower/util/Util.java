@@ -23,10 +23,14 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.eclipse.jgit.api.Git;
@@ -233,6 +237,11 @@ public class Util {
         } catch (MalformedURLException e) { // God I hate the URL class
             throw new RuntimeException(e);
         }
+    }
+
+    public static <T> Collector<T, ?, Map<Integer, List<T>>> partitionEvery(final int chunkSize) {
+        final AtomicInteger counter = new AtomicInteger();
+        return Collectors.groupingBy(it -> counter.getAndIncrement() / chunkSize);
     }
 
 }

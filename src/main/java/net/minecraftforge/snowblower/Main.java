@@ -37,7 +37,9 @@ public class Main {
         var releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
         var startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
         var configO = parser.accepts("cfg", "Config file for SnowBlower").withRequiredArg().ofType(URI.class);
-        var pushO = parser.accepts("push", "The name of the remote to push to. If omitted, the output will not be pushed").withRequiredArg();
+        var remoteO = parser.accepts("remote", "The URL of the Git remote to use").withRequiredArg().ofType(URL.class);
+        var checkoutO = parser.accepts("checkout", "Whether to checkout the remote branch (if it exists) before generating").availableIf("remote");
+        var pushO = parser.accepts("push", "Whether to push the branch to the remote once finished").availableIf("remote");
 
         OptionSet options;
         try {
@@ -61,6 +63,9 @@ public class Main {
         File extraMappings = options.valueOf(extraMappingsO);
         Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath();
         boolean startOver = options.has(startOverO);
+        URL remote = options.has(remoteO) ? options.valueOf(remoteO) : null;
+        boolean checkout = options.has(checkoutO);
+        boolean push = options.has(pushO);
 
         var startVer = options.has(startVerO) ? MinecraftVersion.from(options.valueOf(startVerO)) : null;
         var targetVer = options.has(targetVerO) ? MinecraftVersion.from(options.valueOf(targetVerO)) : null;
@@ -87,7 +92,7 @@ public class Main {
         }
 
         try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache)) {
-            gen.setup(branchName, options.valueOf(pushO), cfg, cliBranch, startOver);
+            gen.setup(branchName, remote, checkout, push, cfg, cliBranch, startOver);
             gen.run();
         }
     }
