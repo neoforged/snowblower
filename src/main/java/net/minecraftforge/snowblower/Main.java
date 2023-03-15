@@ -13,6 +13,7 @@ import net.minecraftforge.snowblower.data.Config.BranchSpec;
 import net.minecraftforge.snowblower.util.DependencyHashCache;
 import net.minecraftforge.snowblower.util.Util;
 import net.minecraftforge.srgutils.MinecraftVersion;
+import org.eclipse.jgit.lib.PersonIdent;
 
 import java.io.File;
 import java.net.MalformedURLException;
@@ -30,7 +31,7 @@ public class Main {
         var outputO = parser.accepts("output", "Output directory to put the git directory in").withRequiredArg().ofType(File.class).required();
         var cacheO = parser.accepts("cache", "Cache directory to hold all files related to a version. If omitted, goes to ./cache").withRequiredArg().ofType(File.class);
         var extraMappingsO = parser.accepts("extra-mappings", "When set, points to a directory with extra mappings files").withRequiredArg().ofType(File.class);
-        var startVerO = parser.accepts("start-ver", "The starting Minecraft version to generate from (inclusive). If omitted, defaultys to oldest while respecting --releases-only").withRequiredArg();
+        var startVerO = parser.accepts("start-ver", "The starting Minecraft version to generate from (inclusive). If omitted, defaults to oldest while respecting --releases-only").withRequiredArg();
         var targetVerO = parser.accepts("target-ver", "The target Minecraft version to generate up to (inclusive). If omitted, defaults to latest while respecting --releases-only").withRequiredArg();
         var branchNameO =
                 parser.acceptsAll(List.of("branch-name", "branch"), "The Git branch name, creating an orphan branch if it does not exist. Uses checked out branch if omitted").withRequiredArg();
@@ -40,6 +41,7 @@ public class Main {
         var remoteO = parser.accepts("remote", "The URL of the Git remote to use").withRequiredArg().ofType(URL.class);
         var checkoutO = parser.accepts("checkout", "Whether to checkout the remote branch (if it exists) before generating").availableIf("remote");
         var pushO = parser.accepts("push", "Whether to push the branch to the remote once finished").availableIf("remote");
+        var committerO = parser.accepts("committer", "The name and email of the user to use as the committer, separated by a space. If omitted, defaults to snowforge").withRequiredArg();
 
         OptionSet options;
         try {
@@ -89,6 +91,14 @@ public class Main {
             branches.put("release", new BranchSpec("release", null, null, null));
             branches.put("dev", new BranchSpec("all", null, null, null));
             cfg = new Config(branches);
+        }
+
+        if (options.has(committerO)) {
+            final String[] committer = options.valueOf(committerO).split(" ");
+            if (committer.length != 2) {
+                throw new IllegalArgumentException("Committer should be in the format 'name email'!");
+            }
+            Util.COMMITTER = new PersonIdent(committer[0], committer[1]);
         }
 
         try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache)) {

@@ -448,7 +448,7 @@ public class Generator implements AutoCloseable {
             return null;
 
         for (var commit : git.log().add(headId).call()) {
-            if (commit.getCommitterIdent().getName().equalsIgnoreCase("SnowBlower"))
+            if (commit.getCommitterIdent().getName().equals(Util.COMMITTER.getName()))
                 return commit.getShortMessage();
         }
         return null;
