@@ -37,6 +37,7 @@ public class Main {
                 parser.acceptsAll(List.of("branch-name", "branch"), "The Git branch name, creating an orphan branch if it does not exist. Uses checked out branch if omitted").withRequiredArg();
         var releasesOnlyO = parser.accepts("releases-only", "When set, only release versions will be considered");
         var startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
+        var startOverIfRequiredO = parser.accepts("start-over-if-required", "Whether to start over by deleting the target branch, only if it is necessary to do so").availableUnless("start-over");
         var configO = parser.accepts("cfg", "Config file for SnowBlower").withRequiredArg().ofType(URI.class);
         var remoteO = parser.accepts("remote", "The URL of the Git remote to use").withRequiredArg().ofType(URL.class);
         var checkoutO = parser.accepts("checkout", "Whether to checkout the remote branch (if it exists) before generating").availableIf("remote");
@@ -65,6 +66,7 @@ public class Main {
         File extraMappings = options.valueOf(extraMappingsO);
         Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath();
         boolean startOver = options.has(startOverO);
+        boolean startOverIfRequired = !startOver && options.has(startOverIfRequiredO);
         URL remote = options.has(remoteO) ? options.valueOf(remoteO) : null;
         boolean checkout = options.has(checkoutO);
         boolean push = options.has(pushO);
@@ -102,7 +104,7 @@ public class Main {
         }
 
         try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache)) {
-            gen.setup(branchName, remote, checkout, push, cfg, cliBranch, startOver);
+            gen.setup(branchName, remote, checkout, push, cfg, cliBranch, startOver, startOverIfRequired);
             gen.run();
         }
     }

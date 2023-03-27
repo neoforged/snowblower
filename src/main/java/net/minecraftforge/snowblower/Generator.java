@@ -81,6 +81,7 @@ public class Generator implements AutoCloseable {
     private boolean checkout;
     private boolean push;
     private boolean removeRemote;
+    private boolean freshIfRequired;
 
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache) {
         this.output = output.toAbsolutePath().normalize();
@@ -89,7 +90,8 @@ public class Generator implements AutoCloseable {
         this.depCache = depCache;
     }
 
-    public Generator setup(String branchName, @Nullable URL remoteUrl, boolean checkout, boolean push, Config cfg, BranchSpec cliBranch, boolean fresh) throws IOException, GitAPIException {
+    public Generator setup(String branchName, @Nullable URL remoteUrl, boolean checkout, boolean push, Config cfg, BranchSpec cliBranch,
+            boolean fresh, boolean freshIfRequired) throws IOException, GitAPIException {
         try {
             this.git = Git.open(this.output.toFile());
         } catch (RepositoryNotFoundException e) { // I wish there was a better way to detect if it exists/is init
@@ -103,7 +105,28 @@ public class Generator implements AutoCloseable {
         this.branchName = branchName;
         this.checkout = checkout;
         this.push = push;
+        this.freshIfRequired = freshIfRequired;
 
+        branchName = setupBranch(branchName, fresh);
+
+        var cfgBranch = cfg.branches() == null ? null : cfg.branches().get(branchName);
+        if (cfgBranch == null) {
+            if (cliBranch.start() == null && cliBranch.end() == null && cliBranch.versions() == null)
+                throw new IllegalArgumentException("Unknown branch config: " + branchName);
+            this.branch = cliBranch;
+        } else {
+            this.branch = new BranchSpec(
+                cfgBranch.type(),
+                cliBranch.start() == null ? cfgBranch.start() : cliBranch.start(),
+                cliBranch.end() == null ? cfgBranch.end() : cliBranch.end(),
+                cfgBranch.versions()
+            );
+        }
+
+        return this;
+    }
+
+    private String setupBranch(@Nullable String branchName, boolean fresh) throws IOException, GitAPIException {
         // Find the current branch in case the command line didn't specify one.
         var currentBranch = git.getRepository().getBranch();
         if (branchName == null) {
@@ -115,6 +138,7 @@ public class Generator implements AutoCloseable {
         boolean exists = git.getRepository().resolve(branchName) != null;
         boolean deleteTemp = false;
         if (fresh && exists) {
+            this.logger.accept("Starting over existing branch " + branchName);
             deleteTemp = deleteBranch(branchName, currentBranch);
             exists = false;
             git.checkout().setOrphan(true).setName(branchName).call(); // Move to correctly named branch
@@ -135,21 +159,7 @@ public class Generator implements AutoCloseable {
         if (deleteTemp)
             git.branchDelete().setBranchNames("orphan_temp").setForce(true).call(); // Cleanup temp branch
 
-        var cfgBranch = cfg.branches() == null ? null : cfg.branches().get(branchName);
-        if (cfgBranch == null) {
-            if (cliBranch.start() == null && cliBranch.end() == null && cliBranch.versions() == null)
-                throw new IllegalArgumentException("Unknown branch config: " + branchName);
-            this.branch = cliBranch;
-        } else {
-            this.branch = new BranchSpec(
-                cfgBranch.type(),
-                cliBranch.start() == null ? cfgBranch.start() : cliBranch.start(),
-                cliBranch.end() == null ? cfgBranch.end() : cliBranch.end(),
-                cfgBranch.versions()
-            );
-        }
-
-        return this;
+        return branchName;
     }
 
     private boolean deleteBranch(String branchName, String currentBranch) throws GitAPIException {
@@ -266,8 +276,18 @@ public class Generator implements AutoCloseable {
         }
 
         // Validate the current metadata, and make initial commit if needed.
-        if (!init.validate(startVer))
-            return;
+        if (!init.validate(startVer)) {
+            if (this.freshIfRequired) {
+                this.setupBranch(this.branchName, true);
+                if (!init.validate(startVer))
+                    throw new IllegalStateException("This should never happen! We deleted the branch, but it still failed verification.");
+            } else {
+                this.logger.accept("The starting commit on this branch does not have matching metadata.");
+                this.logger.accept("This could be due to a different Snowblower version or a different starting Minecraft version.");
+                this.logger.accept("Please choose a different branch with --branch or add the --start-over / --start-over-if-required flag and try again.");
+                return;
+            }
+        }
 
         // Build our target list.
         int startIdx = -1;

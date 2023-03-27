@@ -66,9 +66,6 @@ public class InitTask {
 
         var metaPath = root.resolve("Snowblower.txt");
         if (Files.exists(metaPath) && !meta.isValid(metaPath)) {
-            logger.accept("The starting commit on this branch does not have matching metadata.");
-            logger.accept("This could be due to a different Snowblower version or a different starting Minecraft version.");
-            logger.accept("Please choose a different branch with --branch or add the --start-over flag and try again.");
             return false;
         }
 
