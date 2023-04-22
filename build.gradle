@@ -35,7 +35,7 @@ dependencies {
     shade 'org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r'
     shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'
     shade 'com.google.code.gson:gson:2.10.1'
-    shade 'net.minecraftforge:srgutils:0.4.13'
+    shade 'net.minecraftforge:srgutils:0.5.1'
     shade 'net.minecraftforge:mergetool:1.1.5'
     shade 'net.minecraftforge:ForgeAutoRenamingTool:0.1.24'
     shade 'net.minecraftforge:forgeflower:2.0.627.0'

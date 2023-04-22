@@ -246,6 +246,8 @@ public class Generator implements AutoCloseable {
             versions = versions.stream().filter(v -> this.branch.versions().contains(v.id())).toList();
             if (targetVer == null)
                 targetVer = versions.get(0).id();
+        } else {
+            versions = versions.stream().filter(v -> !v.id().getType().isSpecial()).toList();
         }
 
         // Find the latest version from the manifest
