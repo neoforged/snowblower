@@ -1,7 +1,7 @@
 org.eclipse.jgit:org.eclipse.jgit=7c20a9bda8a767b1bab3a2ecab384cd416e3093e # 6.4.0.202211300538-r
 net.sf.jopt-simple:jopt-simple=02ab1a73e1e22d2b73469362a0908a98644b681d # 6.0-alpha-3
 com.google.code.gson:gson=b3add478d4382b78ea20b1671390a858002feb6c # 2.10.1
-net.minecraftforge:srgutils=4f577f14f18a8b53b7e7da105952d4d664aafa48 # 0.4.13
+net.minecraftforge:srgutils=2268068226f4fc241be0b4592758dc0fc8371837 # 0.5.1
 net.minecraftforge:mergetool=e31dad26696043b540681aabc93e2001a1a2cd44 # 1.1.5
 net.minecraftforge:ForgeAutoRenamingTool=afc3c5dfec2817ddb96ae2a23ff552508eb77a71 # 0.1.24
 net.minecraftforge:forgeflower=fd4ccb35f2a7e70d29b56723b3e4be0401016876 # 2.0.627.0

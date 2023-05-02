@@ -7,22 +7,28 @@ package net.minecraftforge.snowblower.gradle
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.artifacts.Configuration
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 
 import java.security.MessageDigest
 
 abstract class DependencyHashingTask extends DefaultTask {
-    @Input
+    @InputFiles
+    protected abstract ConfigurableFileCollection getInternalInputFiles()
+
+    @Internal
     abstract Property<Configuration> getConfiguration()
 
     @OutputFile
     abstract RegularFileProperty getOutput()
 
     DependencyHashingTask() {
+        internalInputFiles.from(configuration)
         output.convention(project.layout.buildDirectory.file('dependency_hashes.txt'))
     }
 
