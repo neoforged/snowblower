@@ -53,6 +53,10 @@ tasks.register('shadowJarFixup', ShadowJarFixupTask) {
     output = shadowJar.archiveFile
 }
 
+afterEvaluate {
+    tasks.generateMetadataFileForMavenJavaPublication.dependsOn 'shadowJarFixup'
+}
+
 sourceSets {
     main {
         resources {
