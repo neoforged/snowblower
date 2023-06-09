@@ -114,7 +114,11 @@ public class Util {
     }
 
     public static void downloadFile(Consumer<String> logger, Path file, URL url, @Nullable String sha1) throws IOException {
-        Files.createDirectories(file.getParent());
+        if (Files.exists(file)) {
+            Files.delete(file);
+        } else {
+            Files.createDirectories(file.getParent());
+        }
 
         download(logger, url, () -> HttpResponse.BodyHandlers.ofFile(file));
 
