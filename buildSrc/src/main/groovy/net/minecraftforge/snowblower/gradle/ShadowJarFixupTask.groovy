@@ -30,8 +30,8 @@ abstract class ShadowJarFixupTask extends DefaultTask {
     @TaskAction
     void run() {
         try (def zipFs = FileSystems.newFileSystem(input.get().asFile.toPath(), new HashMap<String, Object>())) {
-            def start = zipFs.getPath('/gradle/wrapper/gradle-wrapper.zip')
-            def end = zipFs.getPath('/gradle/wrapper/gradle-wrapper.jar')
+            Path start = zipFs.getPath('/gradle/wrapper/gradle-wrapper.zip')
+            Path end = zipFs.getPath('/gradle/wrapper/gradle-wrapper.jar')
 
             if (Files.isRegularFile(start) && !Files.exists(end))
                 Files.move(start, end)

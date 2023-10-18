@@ -35,8 +35,8 @@ abstract class DependencyHashingTask extends DefaultTask {
     @TaskAction
     void run() {
         output.get().asFile.text = configuration.get().resolvedConfiguration.firstLevelModuleDependencies.collect { dep ->
-            def hash = MessageDigest.getInstance('SHA-1').digest(dep.moduleArtifacts.iterator().next().file.bytes)
-            def hashString = hash.encodeHex().toString()
+            byte[] hash = MessageDigest.getInstance('SHA-1').digest(dep.moduleArtifacts.iterator().next().file.bytes)
+            String hashString = hash.encodeHex().toString()
             // "${dep.moduleGroup}:${dep.moduleName}:${dep.moduleVersion}=$hashString"
             "${dep.moduleGroup}:${dep.moduleName}=$hashString # ${dep.moduleVersion}"
         }.join('\n')
