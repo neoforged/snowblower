@@ -13,7 +13,7 @@ jobs:
     uses: neoforged/actions/.github/workflows/gradle-publish.yml@main
     with:
       java: 17
-      gradle_tasks: publish
+      gradle_tasks: 'publish --stacktrace'
     secrets:
       DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
       MAVEN_USER: ${{ secrets.MAVEN_USER }}
