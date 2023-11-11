@@ -29,7 +29,7 @@ abstract class ShadowJarFixupTask extends DefaultTask {
 
     @TaskAction
     void run() {
-        try (def zipFs = FileSystems.newFileSystem(input.get().asFile.toPath(), new HashMap<String, Object>())) {
+        try (def zipFs = FileSystems.newFileSystem(input.get().asFile.toPath(), (ClassLoader)null)) {
             Path start = zipFs.getPath('/gradle/wrapper/gradle-wrapper.zip')
             Path end = zipFs.getPath('/gradle/wrapper/gradle-wrapper.jar')
 
