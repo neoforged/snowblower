@@ -56,9 +56,9 @@ dependencies {
     shade 'org.bouncycastle:bcpkix-jdk15on:1.58'
     shade 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.13.3'
 
-    shade 'io.jsonwebtoken:jjwt-api:0.10.5'
-    shade 'io.jsonwebtoken:jjwt-impl:0.10.5'
-    shade 'io.jsonwebtoken:jjwt-jackson:0.10.5'
+    shade 'io.jsonwebtoken:jjwt-api:0.11.5'
+    shade 'io.jsonwebtoken:jjwt-impl:0.11.5'
+    shade 'io.jsonwebtoken:jjwt-jackson:0.11.5'
     shade 'org.kohsuke:github-api:1.313'
 }
 
@@ -121,8 +121,6 @@ tasks.named('shadowJar', ShadowJar).configure {
         into 'gradle'
         rename '(.+).jar', '$1.zip'
     }
-
-    minimize()
 
     finalizedBy 'shadowJarFixup'
 }
