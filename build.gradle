@@ -1,7 +1,7 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
-import net.minecraftforge.gradleutils.PomUtils
-import net.minecraftforge.snowblower.gradle.DependencyHashingTask
-import net.minecraftforge.snowblower.gradle.ShadowJarFixupTask
+import net.neoforged.snowblower.gradle.DependencyHashingTask
+import net.neoforged.snowblower.gradle.ShadowJarFixupTask
+import net.neoforged.gradleutils.PomUtilsExtension.License
 
 plugins {
     id 'java'
@@ -10,11 +10,18 @@ plugins {
     id 'idea'
     id 'org.cadixdev.licenser' version '0.6.1'
     id 'com.github.johnrengelman.shadow' version '8.1.1'
-    id 'net.minecraftforge.gradleutils' version '2.+'
+    id 'net.neoforged.gradleutils' version '3.0.0-alpha.4'
 }
 
-group 'net.minecraftforge'
-version = gradleutils.getTagOffsetVersion()
+group 'net.neoforged'
+base {
+    archivesName.set('snowblower')
+}
+gradleutils {
+    setupSigning()
+}
+
+version = gradleutils.version
 println "Version: $version"
 
 java {
@@ -25,7 +32,7 @@ java {
 
 repositories {
     mavenCentral()
-    maven gradleutils.forgeMaven
+    maven gradleutils.maven
 }
 
 configurations {
@@ -41,10 +48,18 @@ dependencies {
     shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'
     shade 'com.google.code.gson:gson:2.10.1'
     shade 'net.minecraftforge:srgutils:0.5.1'
-    shade 'net.minecraftforge:mergetool:1.1.5'
-    shade 'net.minecraftforge:ForgeAutoRenamingTool:0.1.24'
     shade 'net.minecraftforge:forgeflower:2.0.627.0'
     shade 'net.minecraftforge:installertools:1.3.2'
+    shade 'net.neoforged:AutoRenamingTool:1.0.9'
+    shade 'net.neoforged:mergetool:2.0.1'
+
+    shade 'org.bouncycastle:bcpkix-jdk15on:1.58'
+    shade 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.13.3'
+
+    shade 'io.jsonwebtoken:jjwt-api:0.10.5'
+    shade 'io.jsonwebtoken:jjwt-impl:0.10.5'
+    shade 'io.jsonwebtoken:jjwt-jackson:0.10.5'
+    shade 'org.kohsuke:github-api:1.313'
 }
 
 tasks.register('generateDependencyHashes', DependencyHashingTask) {
@@ -92,7 +107,7 @@ tasks.named('jar', Jar).configure {
     }
     manifest {
         attributes([
-            'Main-Class': 'net.minecraftforge.snowblower.Main',
+            'Main-Class': 'net.neoforged.snowblower.Main',
             'Implementation-Version': "${project.version} (${gradleutils.gitInfo.commit})"
         ])
     }
@@ -117,31 +132,34 @@ artifacts {
 }
 
 changelog {
-    fromCommit '4f8480ec50cc76a562230245170172bc84777d3a'
+    from '2.0'
 }
 
 license {
     header = file('LICENSE-header.txt')
     newLine = false
     exclude '**/*.properties'
+    skipExistingHeaders true
+}
+
+test {
+    enabled = false
 }
 
 publishing {
     publications.register('mavenJava', MavenPublication) {
         from components.java
+        gradleutils.sign(it)
 
         pom {
             name = 'Snowblower'
             description = 'A utility to create a git repository of Minecraft decompiled code to make it easier to see what changed between minecraft versions.'
-            url = 'https://github.com/MinecraftForge/Snowblower'
-
-            PomUtils.setGitHubDetails(pom, 'Snowblower')
-
-            license PomUtils.Licenses.LGPLv2_1
+            pomUtils.githubRepo(it, 'snowblower')
+            pomUtils.license(it, License.MIT)
         }
     }
 
     repositories {
-        maven gradleutils.getPublishingForgeMaven()
+        maven gradleutils.publishingMaven
     }
 }
