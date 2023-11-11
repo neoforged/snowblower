@@ -9,8 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Consumer;
 
-import net.minecraftforge.mergetool.AnnotationVersion;
-import net.minecraftforge.mergetool.Merger;
+import net.neoforged.mergetool.AnnotationVersion;
+import net.neoforged.mergetool.Merger;
 import net.neoforged.snowblower.data.Version;
 import net.neoforged.snowblower.util.Cache;
 import net.neoforged.snowblower.util.DependencyHashCache;

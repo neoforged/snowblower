@@ -149,6 +149,7 @@ test {
 publishing {
     publications.register('mavenJava', MavenPublication) {
         from components.java
+        artifactId = 'snowblower'
         gradleutils.sign(it)
 
         pom {
