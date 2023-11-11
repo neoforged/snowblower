@@ -19,17 +19,32 @@ import net.neoforged.snowblower.util.Util;
 import net.minecraftforge.srgutils.IMappingFile;
 
 public class MergeTask {
-    public static Path getJoinedJar(Consumer<String> logger, Path cache, Version version, Path mappings, DependencyHashCache depCache) throws IOException {
+    public static Path getJoinedJar(Consumer<String> logger, Path cache, Version version, Path mappings, DependencyHashCache depCache, boolean partialCache) throws IOException {
+        var keyF = cache.resolve("joined.jar.cache");
+        var joinedJar = cache.resolve("joined.jar");
+        if (partialCache && Files.exists(joinedJar) && Files.exists(keyF)) {
+            var key = new Cache()
+                    .put(Tools.MERGETOOL, depCache)
+                    .put("client", getSha("client", version))
+                    .put("server-full", getSha("server", version))
+                    .put("map", mappings)
+                    .put(Tools.MERGETOOL, depCache);
+            if (key.isValid(keyF, k -> !k.equals("server"))) {
+                logger.accept("  Hitting cache for joined jar");
+                return joinedJar;
+            }
+        }
+
         var clientJar = getJar(logger, "client", cache, version);
-        var serverJar = BundlerExtractTask.getExtractedServerJar(logger, cache, getJar(logger, "server", cache, version), depCache);
+        var serverFullJar = getJar(logger, "server", cache, version);
+        var serverJar = BundlerExtractTask.getExtractedServerJar(logger, cache, serverFullJar, depCache);
 
         var key = new Cache()
             .put(Tools.MERGETOOL, depCache)
             .put("client", clientJar)
             .put("server", serverJar)
+            .put("server-full", serverFullJar)
             .put("map", mappings);
-        var keyF = cache.resolve("joined.jar.cache");
-        var joinedJar = cache.resolve("joined.jar");
 
         if (!Files.exists(joinedJar) || !key.isValid(keyF)) {
             logger.accept("  Merging client and server jars");
@@ -45,7 +60,17 @@ public class MergeTask {
             key.write(keyF);
         }
 
+        if (partialCache) {
+            Files.delete(clientJar);
+            Files.delete(serverFullJar);
+            Files.delete(serverJar);
+        }
+
         return joinedJar;
+    }
+
+    private static String getSha(String type, Version version) {
+        return version.downloads().get(type).sha1();
     }
 
     private static Path getJar(Consumer<String> logger, String type, Path cache, Version version) throws IOException {

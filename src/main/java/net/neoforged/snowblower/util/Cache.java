@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 public class Cache {
@@ -79,6 +80,10 @@ public class Cache {
     }
 
     public boolean isValid(Path target) throws IOException {
+        return isValid(target, e -> true);
+    }
+
+    public boolean isValid(Path target, Predicate<String> shouldConsider) throws IOException {
         if (!Files.exists(target))
             return false;
 
@@ -91,7 +96,9 @@ public class Cache {
 
                 String key = l.substring(0, idx - 1);
                 String value = l.substring(idx + 1);
-                existing.put(key, value);
+                if (shouldConsider.test(key)) {
+                    existing.put(key, value);
+                }
             });
         }
         return existing.equals(data);

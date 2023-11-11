@@ -43,6 +43,7 @@ public class Main {
         var checkoutO = parser.accepts("checkout", "Whether to checkout the remote branch (if it exists) before generating").availableIf("remote");
         var pushO = parser.accepts("push", "Whether to push the branch to the remote once finished").availableIf("remote");
         var committerO = parser.accepts("committer", "The name and email of the user to use as the committer, separated by a space. If omitted, defaults to snowforge").withRequiredArg();
+        var partialCache = parser.accepts("partial-cache", "If true, the cache will be partial, meaning that the server and client jar will be deleted, leaving only the joined jar. The SHA in the version manifest will be used to determine whether the joined jar should be remade");
 
         var githubAppId = parser.accepts("github-app-id", "The ID of a GitHub app to use for git auth").withRequiredArg().ofType(String.class);
         var githubInstallationRepo = parser.accepts("github-installation-repo", "The name of the repository to use as the installation target of the GitHub app").availableIf(githubAppId).withRequiredArg();
@@ -77,6 +78,7 @@ public class Main {
         Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath();
         boolean startOver = options.has(startOverO);
         boolean startOverIfRequired = !startOver && options.has(startOverIfRequiredO);
+        boolean partialCachce = options.has(partialCache);
         URL remote = options.has(remoteO) ? options.valueOf(remoteO) : null;
         boolean checkout = options.has(checkoutO);
         boolean push = options.has(pushO);
@@ -114,7 +116,7 @@ public class Main {
         }
 
         try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache)) {
-            gen.setup(branchName, remote, checkout, push, cfg, cliBranch, startOver, startOverIfRequired);
+            gen.setup(branchName, remote, checkout, push, cfg, cliBranch, startOver, startOverIfRequired, partialCachce);
             gen.run();
         }
     }

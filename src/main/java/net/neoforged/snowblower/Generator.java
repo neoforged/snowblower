@@ -81,6 +81,8 @@ public class Generator implements AutoCloseable {
     private boolean push;
     private boolean removeRemote;
     private boolean freshIfRequired;
+    private boolean partialCache;
+    private final String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1"};
 
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache) {
         this.output = output.toAbsolutePath().normalize();
@@ -90,7 +92,7 @@ public class Generator implements AutoCloseable {
     }
 
     public Generator setup(String branchName, @Nullable URL remoteUrl, boolean checkout, boolean push, Config cfg, BranchSpec cliBranch,
-            boolean fresh, boolean freshIfRequired) throws IOException, GitAPIException {
+            boolean fresh, boolean freshIfRequired, boolean partialCache) throws IOException, GitAPIException {
         try {
             this.git = Git.open(this.output.toFile());
         } catch (RepositoryNotFoundException e) { // I wish there was a better way to detect if it exists/is init
@@ -105,6 +107,7 @@ public class Generator implements AutoCloseable {
         this.checkout = checkout;
         this.push = push;
         this.freshIfRequired = freshIfRequired;
+        this.partialCache = partialCache;
 
         branchName = setupBranch(branchName, fresh);
 
@@ -476,14 +479,41 @@ public class Generator implements AutoCloseable {
     }
 
     private void generate(Consumer<String> logger, Git git, Path output, Path cache, Path libCache, Version version, Path extraMappings, DependencyHashCache depCache) throws IOException, GitAPIException {
-        var mappings = MappingTask.getMergedMappings(logger, cache, version, extraMappings);
-        if (mappings == null)
-            return;
+        Path decomped = null;
+        if (partialCache) {
+            var decompJar = cache.resolve("joined-decompiled.jar");
+            var keyF = cache.resolve("joined-decompiled.jar.cache");
+            if (Files.exists(decompJar) && Files.exists(keyF)) {
+                var key = new Cache()
+                        .put(Tools.FORGEFLOWER, this.depCache);
 
-        var joined = MergeTask.getJoinedJar(logger, cache, version, mappings, depCache);
-        var libs = getLibraries(libCache, version);
-        var renamed = getRenamedJar(cache, joined, mappings, libCache, libs);
-        var decomped = getDecompiledJar(cache, renamed, libCache, libs);
+                if (partialCache) {
+                    key.put("downloads-client", version.downloads().get("client").sha1());
+                    key.put("downloads-client_mappings", version.downloads().get("client_mappings").sha1());
+                    key.put("downloads-server", version.downloads().get("server").sha1());
+                    key.put("downloads-server", version.downloads().get("server_mappings").sha1());
+                }
+
+                key.put("decompileArgs", String.join(" ", decompileArgs));
+
+                if (key.isValid(keyF, str -> str.equals(Tools.FORGEFLOWER) || str.equals("decompileArgs") || str.startsWith("downloads-"))) {
+                    decomped = decompJar;
+                    logger.accept("  Decompiled jar partial cache hit");
+                }
+            }
+        }
+
+        if (decomped == null) {
+            var mappings = MappingTask.getMergedMappings(logger, cache, version, extraMappings);
+            if (mappings == null)
+                return;
+
+            var joined = MergeTask.getJoinedJar(logger, cache, version, mappings, depCache, partialCache);
+            var libs = getLibraries(libCache, version);
+            var renamed = getRenamedJar(cache, joined, mappings, libCache, libs);
+            decomped = getDecompiledJar(cache, version, renamed, libCache, libs);
+        }
+
 
         Path src = output.resolve("src").resolve("main");
         Set<Path> existingFiles;
@@ -627,12 +657,18 @@ public class Generator implements AutoCloseable {
         return ret;
     }
 
-    private Path getDecompiledJar(Path cache, Path renamed, Path libCache, List<Path> libs) throws IOException {
+    private Path getDecompiledJar(Path cache, Version version, Path renamed, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
             .put(Tools.FORGEFLOWER, this.depCache)
             .put("renamed", renamed);
 
-        String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1"};
+        if (partialCache) {
+            key.put("downloads-client", version.downloads().get("client").sha1());
+            key.put("downloads-client_mappings", version.downloads().get("client_mappings").sha1());
+            key.put("downloads-server", version.downloads().get("server").sha1());
+            key.put("downloads-server", version.downloads().get("server_mappings").sha1());
+        }
+
         key.put("decompileArgs", String.join(" ", decompileArgs));
 
         for (var lib : libs) {
