@@ -2,7 +2,7 @@ plugins {
     id 'org.cadixdev.licenser' version '0.6.1'
 }
 
-java.toolchain.languageVersion.set(JavaLanguageVersion.of(17))
+java.toolchain.languageVersion.set(JavaLanguageVersion.of(8))
 
 license {
     header = new File(projectDir.parentFile, 'HEADER')
