@@ -4,7 +4,7 @@
  */
 package net.neoforged.snowblower.tasks;
 
-import net.minecraftforge.installertools.BundlerExtract;
+import net.neoforged.installertools.BundlerExtract;
 import net.neoforged.snowblower.util.Cache;
 import net.neoforged.snowblower.util.DependencyHashCache;
 import net.neoforged.snowblower.util.Tools;
