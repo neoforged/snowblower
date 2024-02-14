@@ -84,7 +84,9 @@ public class InitTask {
                 "*.png binary",
                 "*.gif binary",
                 "*.nbt binary",
-                "*.ogg binary"
+                "*.ogg binary",
+                "# In GitHub, hide resources by default",
+                "src/main/resources/** linguist-generated"
             );
             Util.add(git, attrs);
 
