@@ -18,7 +18,6 @@ import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Consumer;
 
 import net.neoforged.snowblower.util.Cache;
 import org.eclipse.jgit.api.AddCommand;
@@ -36,12 +35,10 @@ import net.minecraftforge.srgutils.MinecraftVersion;
 
 public class InitTask {
     private static final String COMMIT_MESSAGE = "Initial commit";
-    private final Consumer<String> logger;
     private final Path root;
     private final Git git;
 
-    public InitTask(Consumer<String> logger, Path root, Git git) {
-        this.logger = logger;
+    public InitTask(Path root, Git git) {
         this.root = root;
         this.git = git;
     }

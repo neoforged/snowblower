@@ -17,7 +17,7 @@ public record VersionManifestV2(
     private static final URL VERSION_MANIFEST_V2_URL = Util.makeURL("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json");
 
     public static VersionManifestV2 query() throws IOException {
-        return Util.downloadJson(s -> {}, VERSION_MANIFEST_V2_URL, VersionManifestV2.class);
+        return Util.downloadJson(VERSION_MANIFEST_V2_URL, VersionManifestV2.class);
     }
 
     public record LatestInfo(

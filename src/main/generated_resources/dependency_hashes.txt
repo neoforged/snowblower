@@ -1,3 +1,5 @@
+org.slf4j:slf4j-api=48f109a2a6d8f446c794f3e3fa0d86df0cdfa312 # 2.0.12
+ch.qos.logback:logback-classic=d98bc162275134cdf1518774da4a2a17ef6fb94d # 1.4.14
 org.eclipse.jgit:org.eclipse.jgit=7c20a9bda8a767b1bab3a2ecab384cd416e3093e # 6.4.0.202211300538-r
 net.sf.jopt-simple:jopt-simple=02ab1a73e1e22d2b73469362a0908a98644b681d # 6.0-alpha-3
 com.google.code.gson:gson=b3add478d4382b78ea20b1671390a858002feb6c # 2.10.1

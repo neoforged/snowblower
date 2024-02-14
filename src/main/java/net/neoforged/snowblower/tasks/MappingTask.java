@@ -10,7 +10,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -18,20 +17,24 @@ import net.neoforged.snowblower.data.Version;
 import net.neoforged.snowblower.util.Cache;
 import net.neoforged.snowblower.util.Util;
 import net.minecraftforge.srgutils.IMappingFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MappingTask {
-    public static Path getMergedMappings(Consumer<String> logger, Path cache, Version version, Path extraMappings) throws IOException {
-        var clientMojToObf = downloadMappings(logger, cache, extraMappings, version, "client");
+    private static final Logger LOGGER = LoggerFactory.getLogger(MappingTask.class);
+    
+    public static Path getMergedMappings(Path cache, Version version, Path extraMappings) throws IOException {
+        var clientMojToObf = downloadMappings(cache, extraMappings, version, "client");
 
         if (clientMojToObf == null) {
-            logger.accept("  Client mappings not found, skipping version");
+            LOGGER.debug("  Client mappings not found, skipping version");
             return null;
         }
 
-        var serverMojToObf = downloadMappings(logger, cache, extraMappings, version, "server");
+        var serverMojToObf = downloadMappings(cache, extraMappings, version, "server");
 
         if (serverMojToObf == null) {
-            logger.accept("  Server mappings not found, skipping version");
+            LOGGER.debug("  Server mappings not found, skipping version");
             return null;
         }
 
@@ -54,7 +57,7 @@ public class MappingTask {
     }
 
 
-    private static IMappingFile downloadMappings(Consumer<String> logger, Path cache, Path extraMappings, Version version, String type) throws IOException {
+    private static IMappingFile downloadMappings(Path cache, Path extraMappings, Version version, String type) throws IOException {
         var mappings = cache.resolve(type + "_mappings.txt");
 
         if (!Files.exists(mappings)) {
@@ -68,7 +71,7 @@ public class MappingTask {
                 }
             }
 
-            if (!copiedFromExtra && !Util.downloadFile(logger, mappings, version, type + "_mappings"))
+            if (!copiedFromExtra && !Util.downloadFile(mappings, version, type + "_mappings"))
                 return null;
         }
 

@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
@@ -44,8 +43,11 @@ import com.google.gson.JsonDeserializer;
 
 import net.minecraftforge.srgutils.MinecraftVersion;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Util {
+    private static final Logger LOGGER = LoggerFactory.getLogger(Util.class);
     public static final Gson GSON = new GsonBuilder()
         .registerTypeAdapter(MinecraftVersion.class, (JsonDeserializer<MinecraftVersion>) (json, typeOfT, context) -> MinecraftVersion.from(json.getAsString()))
         .create();
@@ -102,24 +104,24 @@ public class Util {
         Files.writeString(target, attrib);
     }
 
-    public static boolean downloadFile(Consumer<String> logger, Path output, Version version, String key) throws IOException {
+    public static boolean downloadFile(Path output, Version version, String key) throws IOException {
         Version.Download download = version.downloads().get(key);
         if (download == null)
             return false;
 
-        downloadFile(logger, output, download.url(), download.sha1());
+        downloadFile(output, download.url(), download.sha1());
 
         return true;
     }
 
-    public static void downloadFile(Consumer<String> logger, Path file, URL url, @Nullable String sha1) throws IOException {
+    public static void downloadFile(Path file, URL url, @Nullable String sha1) throws IOException {
         if (Files.exists(file)) {
             Files.delete(file);
         } else {
             Files.createDirectories(file.getParent());
         }
 
-        download(logger, url, () -> HttpResponse.BodyHandlers.ofFile(file));
+        download(url, () -> HttpResponse.BodyHandlers.ofFile(file));
 
         if (sha1 != null) {
             var actual = HashFunction.SHA1.hash(file);
@@ -132,8 +134,8 @@ public class Util {
         }
     }
 
-    private static <T> HttpResponse<T> download(Consumer<String> logger, URL url, Supplier<HttpResponse.BodyHandler<T>> bodyHandlerFactory) throws IOException {
-        logger.accept("  Downloading " + url);
+    private static <T> HttpResponse<T> download(URL url, Supplier<HttpResponse.BodyHandler<T>> bodyHandlerFactory) throws IOException {
+        LOGGER.debug("  Downloading " + url);
         int maxAttempts = 10;
         int attempts = 1;
         long waitTime = 1_000L;
@@ -171,7 +173,7 @@ public class Util {
                 }
 
                 String error = httpResponse == null ? Objects.toString(ioException) : "HTTP Response Code " + httpResponse.statusCode();
-                logger.accept("    Failed to download, attempt: " + attempts + "/" + maxAttempts + ", error: " + error + ", retrying in " + waitTime + " ms...");
+                LOGGER.warn("    Failed to download, attempt: " + attempts + "/" + maxAttempts + ", error: " + error + ", retrying in " + waitTime + " ms...");
                 try {
                     Thread.sleep(waitTime);
                 } catch (InterruptedException e) {
@@ -197,8 +199,8 @@ public class Util {
                 .build();
     }
 
-    public static <T> T downloadJson(Consumer<String> logger, URL url, Class<T> type) throws IOException {
-        try (var in = new InputStreamReader(download(logger, url, HttpResponse.BodyHandlers::ofInputStream).body())) {
+    public static <T> T downloadJson(URL url, Class<T> type) throws IOException {
+        try (var in = new InputStreamReader(download(url, HttpResponse.BodyHandlers::ofInputStream).body())) {
             return GSON.fromJson(in, type);
         }
     }

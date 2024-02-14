@@ -38,6 +38,8 @@ import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.transport.URIish;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStreamWriter;
@@ -57,7 +59,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -65,13 +66,13 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 public class Generator implements AutoCloseable {
+    private static final Logger LOGGER = LoggerFactory.getLogger(Generator.class);
     public static final int COMMIT_BATCH_SIZE = 10;
 
     private final Path output;
     private final Path cache;
     private final Path extraMappings;
     private final DependencyHashCache depCache;
-    private final Consumer<String> logger = System.out::println;
 
     private Git git;
     private String remoteName;
@@ -140,7 +141,7 @@ public class Generator implements AutoCloseable {
         boolean exists = git.getRepository().resolve(branchName) != null;
         boolean deleteTemp = false;
         if (fresh && exists) {
-            this.logger.accept("Starting over existing branch " + branchName);
+            LOGGER.info("Starting over existing branch {}", branchName);
             deleteTemp = deleteBranch(branchName, currentBranch);
             exists = false;
             git.checkout().setOrphan(true).setName(branchName).call(); // Move to correctly named branch
@@ -229,7 +230,7 @@ public class Generator implements AutoCloseable {
     }
 
     private void runInternal() throws IOException, GitAPIException {
-        var init = new InitTask(this.logger, this.output, git);
+        var init = new InitTask(this.output, git);
 
         var manifest = VersionManifestV2.query();
         if (manifest.versions() == null)
@@ -286,9 +287,11 @@ public class Generator implements AutoCloseable {
                 if (!init.validate(startVer))
                     throw new IllegalStateException("This should never happen! We deleted the branch, but it still failed verification.");
             } else {
-                this.logger.accept("The starting commit on this branch does not have matching metadata.");
-                this.logger.accept("This could be due to a different Snowblower version or a different starting Minecraft version.");
-                this.logger.accept("Please choose a different branch with --branch or add the --start-over / --start-over-if-required flag and try again.");
+                LOGGER.error("""
+                        The starting commit on this branch does not have matching metadata.
+                        This could be due to a different Snowblower version or a different starting Minecraft version.
+                        Please choose a different branch with --branch or add the --start-over / --start-over-if-required flag and try again.
+                        """);
                 return;
             }
         }
@@ -332,7 +335,7 @@ public class Generator implements AutoCloseable {
         }
 
         // Filter version list to only versions that have mappings
-        toGenerate = findVersionsWithMappings(logger, toGenerate, cache, extraMappings);
+        toGenerate = findVersionsWithMappings(toGenerate, cache, extraMappings);
 
         pushRemainingCommits(); // Push old commits in increments of 10 in case we didn't push them then
 
@@ -343,9 +346,9 @@ public class Generator implements AutoCloseable {
             var versionCache = this.cache.resolve(versionInfo.id().toString());
             Files.createDirectories(versionCache);
 
-            this.logger.accept("[" + (x + 1) + "/" + toGenerate.size() + "] Generating " + versionInfo.id());
+            LOGGER.info("[{}, {}] Generating {}", x + 1, toGenerate.size(), versionInfo.id());
             var version = Version.load(versionCache.resolve("version.json"));
-            generate(logger, git, output, versionCache, libs, version, extraMappings, depCache);
+            generate(git, output, versionCache, libs, version, extraMappings, depCache);
 
             if (x % COMMIT_BATCH_SIZE == (COMMIT_BATCH_SIZE - 1)) { // Push every X versions
                 attemptPush("Pushing " + COMMIT_BATCH_SIZE + " versions to remote.");
@@ -355,7 +358,7 @@ public class Generator implements AutoCloseable {
         if (!attemptPush(generatedAny ? "Pushing remaining versions to remote." : "Pushing versions to remote.")) {
             // If the push was up-to-date or skipped, check if no versions were processed and print.
             if (!generatedAny)
-                this.logger.accept("No versions to process");
+                LOGGER.info("No versions to process");
         }
     }
 
@@ -414,7 +417,8 @@ public class Generator implements AutoCloseable {
         if (!this.push || this.remoteName == null)
             return false;
 
-        this.logger.accept(message);
+        // TODO: refactor the logging statements here to be... better (called outside of this method)
+        LOGGER.info(message);
 
         final var result = this.git.push()
                 .setRemote(this.remoteName)
@@ -427,7 +431,7 @@ public class Generator implements AutoCloseable {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Attempted to push to remote, but failed. Reason unknown."));
 
-        this.logger.accept(switch (remoteRefUpdate.getStatus()) {
+        LOGGER.info(switch (remoteRefUpdate.getStatus()) {
             case OK -> "  Successfully pushed to remote.";
             case UP_TO_DATE -> "  Attempted to push to remote, but local branch was up-to-date.";
             default -> throw new IllegalStateException("Could not push to remote: status: " + remoteRefUpdate.getStatus() + ", message: " + remoteRefUpdate.getMessage());
@@ -436,14 +440,14 @@ public class Generator implements AutoCloseable {
         return remoteRefUpdate.getStatus() == RemoteRefUpdate.Status.OK;
     }
 
-    private static List<VersionInfo> findVersionsWithMappings(Consumer<String> logger, List<VersionInfo> versions, Path cache, Path extraMappings) throws IOException {
-        logger.accept("Downloading version manifests");
+    private static List<VersionInfo> findVersionsWithMappings(List<VersionInfo> versions, Path cache, Path extraMappings) throws IOException {
+        LOGGER.info("Downloading version manifests");
         List<VersionInfo> ret = new ArrayList<>();
         for (var ver : versions) {
             // Download the version json file.
             var json = cache.resolve(ver.id().toString()).resolve("version.json");
             if (!Files.exists(json) || !HashFunction.SHA1.hash(json).equals(ver.sha1()))
-                Util.downloadFile(logger, json, ver.url(), ver.sha1());
+                Util.downloadFile(json, ver.url(), ver.sha1());
 
             var dls = Version.load(json).downloads();
             if (dls.containsKey("client_mappings") && dls.containsKey("server_mappings"))
@@ -478,7 +482,7 @@ public class Generator implements AutoCloseable {
         return null;
     }
 
-    private void generate(Consumer<String> logger, Git git, Path output, Path cache, Path libCache, Version version, Path extraMappings, DependencyHashCache depCache) throws IOException, GitAPIException {
+    private void generate(Git git, Path output, Path cache, Path libCache, Version version, Path extraMappings, DependencyHashCache depCache) throws IOException, GitAPIException {
         Path decomped = null;
         if (partialCache) {
             var decompJar = cache.resolve("joined-decompiled.jar");
@@ -498,17 +502,17 @@ public class Generator implements AutoCloseable {
 
                 if (key.isValid(keyF, str -> str.equals(Tools.FORGEFLOWER) || str.equals("decompileArgs") || str.startsWith("downloads-"))) {
                     decomped = decompJar;
-                    logger.accept("  Decompiled jar partial cache hit");
+                    LOGGER.debug("  Decompiled jar partial cache hit");
                 }
             }
         }
 
         if (decomped == null) {
-            var mappings = MappingTask.getMergedMappings(logger, cache, version, extraMappings);
+            var mappings = MappingTask.getMergedMappings(cache, version, extraMappings);
             if (mappings == null)
                 return;
 
-            var joined = MergeTask.getJoinedJar(logger, cache, version, mappings, depCache, partialCache);
+            var joined = MergeTask.getJoinedJar(cache, version, mappings, depCache, partialCache);
             var libs = getLibraries(libCache, version);
             var renamed = getRenamedJar(cache, joined, mappings, libCache, libs);
             decomped = getDecompiledJar(cache, version, renamed, libCache, libs);
@@ -582,7 +586,7 @@ public class Generator implements AutoCloseable {
         });
 
         if (!added.isEmpty() || !removed.isEmpty()) {
-            this.logger.accept("  Committing files");
+            LOGGER.debug("  Committing files");
             Function<Path, String> convert = p -> output.relativize(p).toString().replace('\\', '/'); // JGit requires / even on windows
 
             if (!added.isEmpty()) {
@@ -614,7 +618,7 @@ public class Generator implements AutoCloseable {
             // but I don't think this will ever be an issue
             if (!Files.exists(target)) {
                 Files.createDirectories(target.getParent());
-                Util.downloadFile(this.logger, target, dl.url(), dl.sha1());
+                Util.downloadFile(target, dl.url(), dl.sha1());
             }
 
             ret.add(target);
@@ -637,7 +641,7 @@ public class Generator implements AutoCloseable {
         var ret = cache.resolve("joined-renamed.jar");
 
         if (!Files.exists(ret) || !key.isValid(keyF)) {
-            this.logger.accept("  Renaming joined jar");
+            LOGGER.debug("  Renaming joined jar");
             var builder = Renamer.builder()
                 .map(mappings.toFile())
                 .add(Transformer.parameterAnnotationFixerFactory())
@@ -680,7 +684,7 @@ public class Generator implements AutoCloseable {
         var ret = cache.resolve("joined-decompiled.jar");
 
         if (!Files.exists(ret) || !key.isValid(keyF)) {
-            this.logger.accept("  Decompiling joined-renamed.jar");
+            LOGGER.debug("  Decompiling joined-renamed.jar");
             var cfg = cache.resolve("joined-libraries.cfg");
             Util.writeLines(cfg, libs.stream().map(l -> "-e=" + l.toString()).toArray(String[]::new));
 

@@ -44,6 +44,8 @@ dependencies {
     compileOnly 'org.jetbrains:annotations:24.0.0'
 
     // When updating shade dependencies, you must also run the generateDependencyHashes task
+    shade 'org.slf4j:slf4j-api:2.0.12'
+    shade 'ch.qos.logback:logback-classic:1.4.14'
     shade 'org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r'
     shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'
     shade 'com.google.code.gson:gson:2.10.1'

@@ -7,7 +7,6 @@ package net.neoforged.snowblower.tasks;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.function.Consumer;
 
 import net.neoforged.mergetool.AnnotationVersion;
 import net.neoforged.mergetool.Merger;
@@ -17,9 +16,13 @@ import net.neoforged.snowblower.util.DependencyHashCache;
 import net.neoforged.snowblower.util.Tools;
 import net.neoforged.snowblower.util.Util;
 import net.minecraftforge.srgutils.IMappingFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MergeTask {
-    public static Path getJoinedJar(Consumer<String> logger, Path cache, Version version, Path mappings, DependencyHashCache depCache, boolean partialCache) throws IOException {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MergeTask.class);
+
+    public static Path getJoinedJar(Path cache, Version version, Path mappings, DependencyHashCache depCache, boolean partialCache) throws IOException {
         var keyF = cache.resolve("joined.jar.cache");
         var joinedJar = cache.resolve("joined.jar");
         if (partialCache && Files.exists(joinedJar) && Files.exists(keyF)) {
@@ -30,14 +33,14 @@ public class MergeTask {
                     .put("map", mappings)
                     .put(Tools.MERGETOOL, depCache);
             if (key.isValid(keyF, k -> !k.equals("server"))) {
-                logger.accept("  Hitting cache for joined jar");
+                LOGGER.debug("  Hitting cache for joined jar");
                 return joinedJar;
             }
         }
 
-        var clientJar = getJar(logger, "client", cache, version);
-        var serverFullJar = getJar(logger, "server", cache, version);
-        var serverJar = BundlerExtractTask.getExtractedServerJar(logger, cache, serverFullJar, depCache);
+        var clientJar = getJar("client", cache, version);
+        var serverFullJar = getJar("server", cache, version);
+        var serverJar = BundlerExtractTask.getExtractedServerJar(cache, serverFullJar, depCache);
 
         var key = new Cache()
             .put(Tools.MERGETOOL, depCache)
@@ -47,7 +50,7 @@ public class MergeTask {
             .put("map", mappings);
 
         if (!Files.exists(joinedJar) || !key.isValid(keyF)) {
-            logger.accept("  Merging client and server jars");
+            LOGGER.debug("  Merging client and server jars");
             Merger merger = new Merger(clientJar.toFile(), serverJar.toFile(), joinedJar.toFile());
             // Whitelist only Mojang classes to process
             var map = IMappingFile.load(mappings.toFile());
@@ -73,7 +76,7 @@ public class MergeTask {
         return version.downloads().get(type).sha1();
     }
 
-    private static Path getJar(Consumer<String> logger, String type, Path cache, Version version) throws IOException {
+    private static Path getJar(String type, Path cache, Version version) throws IOException {
         var jar = cache.resolve(type + ".jar");
         var keyF = cache.resolve(type + ".jar.cache");
         var dl = version.downloads().get(type);
@@ -88,7 +91,7 @@ public class MergeTask {
 
         if (!Files.exists(jar) || !key.isValid(keyF)) {
             try {
-                Util.downloadFile(logger, jar, dl.url(), dl.sha1());
+                Util.downloadFile(jar, dl.url(), dl.sha1());
             } catch (IOException e) {
                 throw new IOException("Failed to download " + type + " jar", e);
             }
