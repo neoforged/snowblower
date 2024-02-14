@@ -44,6 +44,9 @@ public class Main {
         var pushO = parser.accepts("push", "Whether to push the branch to the remote once finished").availableIf("remote");
         var committerO = parser.accepts("committer", "The name and email of the user to use as the committer, separated by a space. If omitted, defaults to snowforge").withRequiredArg();
         var partialCache = parser.accepts("partial-cache", "If true, the cache will be partial, meaning that the server and client jar will be deleted, leaving only the joined jar. The SHA in the version manifest will be used to determine whether the joined jar should be remade");
+        
+        var excludeO = parser.accepts("exclude", "A glob pattern (see FileSystem#getPathMatcher) for excluding files from the output").withRequiredArg().ofType(String.class);
+        var includeO = parser.accepts("include", "A glob pattern (see FileSystem#getPathMatcher) for including only specified files from the output").withRequiredArg().ofType(String.class);
 
         var githubAppId = parser.accepts("github-app-id", "The ID of a GitHub app to use for git auth").withRequiredArg().ofType(String.class);
         var githubInstallationRepo = parser.accepts("github-installation-repo", "The name of the repository to use as the installation target of the GitHub app").availableIf(githubAppId).withRequiredArg();
@@ -82,6 +85,8 @@ public class Main {
         URL remote = options.has(remoteO) ? options.valueOf(remoteO) : null;
         boolean checkout = options.has(checkoutO);
         boolean push = options.has(pushO);
+        List<String> includes = options.valuesOf(includeO);
+        List<String> excludes = options.valuesOf(excludeO);
 
         var startVer = options.has(startVerO) ? MinecraftVersion.from(options.valueOf(startVerO)) : null;
         var targetVer = options.has(targetVerO) ? MinecraftVersion.from(options.valueOf(targetVerO)) : null;
@@ -115,7 +120,7 @@ public class Main {
             Util.COMMITTER = new PersonIdent(committer[0], committer[1]);
         }
 
-        try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache)) {
+        try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache, includes, excludes)) {
             gen.setup(branchName, remote, checkout, push, cfg, cliBranch, startOver, startOverIfRequired, partialCachce);
             gen.run();
         }

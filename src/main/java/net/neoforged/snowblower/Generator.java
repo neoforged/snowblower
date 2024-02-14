@@ -49,6 +49,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -73,6 +74,8 @@ public class Generator implements AutoCloseable {
     private final Path cache;
     private final Path extraMappings;
     private final DependencyHashCache depCache;
+    private final List<String> includes;
+    private final List<String> excludes;
 
     private Git git;
     private String remoteName;
@@ -85,11 +88,13 @@ public class Generator implements AutoCloseable {
     private boolean partialCache;
     private final String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1"};
 
-    public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache) {
+    public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache, List<String> includes, List<String> excludes) {
         this.output = output.toAbsolutePath().normalize();
         this.cache = cache.toAbsolutePath().normalize();
         this.extraMappings = extraMappings == null ? null : extraMappings.toAbsolutePath().normalize();
         this.depCache = depCache;
+        this.includes = includes;
+        this.excludes = excludes;
     }
 
     public Generator setup(String branchName, @Nullable URL remoteUrl, boolean checkout, boolean push, Config cfg, BranchSpec cliBranch,
@@ -534,11 +539,16 @@ public class Generator implements AutoCloseable {
         List<Path> removed = new ArrayList<>();
 
         try (FileSystem zipFs = FileSystems.newFileSystem(decomped)) {
+            var matcher = createMatcher(zipFs, includes, excludes);
             var root = zipFs.getPath("/");
             try (Stream<Path> walker = Files.walk(root)) {
                 walker.filter(Files::isRegularFile).forEach(p -> {
                     try {
                         var relative = root.relativize(p);
+                        if (!matcher.matches(relative)) {
+                            return;
+                        }
+                        
                         var target = (p.toString().endsWith(".java") ? java : resources).resolve(relative.toString());
 
                         if (existingFiles.remove(target)) {
@@ -698,6 +708,45 @@ public class Generator implements AutoCloseable {
             key.write(keyF);
         }
         return ret;
+    }
+    
+    private static PathMatcher createMatcher(FileSystem fs, List<String> includes, List<String> excludes) {
+        final PathMatcher matcher;
+        if (!includes.isEmpty()) {
+            // Only include those matching the inclusive patterns
+            matcher = createMatcher(fs, includes); 
+        } else {
+            // Include everything
+            matcher = path -> true;
+        }
+        
+        if (!excludes.isEmpty()) {
+            // Exclude those matching the exclusive patterns
+            var excludesMatcher = createMatcher(fs, excludes);
+            return path -> matcher.matches(path) && !excludesMatcher.matches(path);
+        } else {
+            // Exclude nothing
+            return matcher;
+        }
+    }
+    
+    private static PathMatcher createMatcher(FileSystem fs, List<String> globPatterns) {
+        if (globPatterns.isEmpty()) {
+            return path -> false;
+        }
+        if (globPatterns.size() == 1) {
+            return fs.getPathMatcher("glob:" + globPatterns.get(0));
+        }
+        final List<PathMatcher> matchers = new ArrayList<>(globPatterns.size());
+        for (String globPattern : globPatterns) {
+            matchers.add(fs.getPathMatcher("glob:" + globPattern));
+        }
+        return path -> {
+            for (PathMatcher matcher : matchers) {
+                if (matcher.matches(path)) return true;
+            }
+            return false;
+        };
     }
 
     @Override
