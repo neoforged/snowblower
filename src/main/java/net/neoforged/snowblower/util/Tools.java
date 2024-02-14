@@ -7,7 +7,7 @@ package net.neoforged.snowblower.util;
 public class Tools {
     public static final String SRGUTILS = "net.minecraftforge:srgutils";
     public static final String FART = "net.neoforged:AutoRenamingTool";
-    public static final String FORGEFLOWER = "net.minecraftforge:forgeflower";
+    public static final String VINEFLOWER = "org.vineflower:vineflower";
     public static final String MERGETOOL = "net.neoforged:mergetool";
     public static final String INSTALLERTOOLS = "net.minecraftforge:installertools";
     public static final String JOPT = "net.sf.jopt-simple:jopt-simple";

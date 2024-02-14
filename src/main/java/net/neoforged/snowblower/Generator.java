@@ -489,7 +489,7 @@ public class Generator implements AutoCloseable {
             var keyF = cache.resolve("joined-decompiled.jar.cache");
             if (Files.exists(decompJar) && Files.exists(keyF)) {
                 var key = new Cache()
-                        .put(Tools.FORGEFLOWER, this.depCache);
+                        .put(Tools.VINEFLOWER, this.depCache);
 
                 if (partialCache) {
                     key.put("downloads-client", version.downloads().get("client").sha1());
@@ -500,7 +500,7 @@ public class Generator implements AutoCloseable {
 
                 key.put("decompileArgs", String.join(" ", decompileArgs));
 
-                if (key.isValid(keyF, str -> str.equals(Tools.FORGEFLOWER) || str.equals("decompileArgs") || str.startsWith("downloads-"))) {
+                if (key.isValid(keyF, str -> str.equals(Tools.VINEFLOWER) || str.equals("decompileArgs") || str.startsWith("downloads-"))) {
                     decomped = decompJar;
                     LOGGER.debug("  Decompiled jar partial cache hit");
                 }
@@ -663,7 +663,7 @@ public class Generator implements AutoCloseable {
 
     private Path getDecompiledJar(Path cache, Version version, Path renamed, Path libCache, List<Path> libs) throws IOException {
         var key = new Cache()
-            .put(Tools.FORGEFLOWER, this.depCache)
+            .put(Tools.VINEFLOWER, this.depCache)
             .put("renamed", renamed);
 
         if (partialCache) {
