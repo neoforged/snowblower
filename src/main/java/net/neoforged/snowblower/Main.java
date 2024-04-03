@@ -11,7 +11,7 @@ import net.neoforged.snowblower.data.Config;
 import net.neoforged.snowblower.data.Config.BranchSpec;
 import net.neoforged.snowblower.util.DependencyHashCache;
 import net.neoforged.snowblower.util.Util;
-import net.minecraftforge.srgutils.MinecraftVersion;
+import net.neoforged.srgutils.MinecraftVersion;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.transport.CredentialsProvider;
 

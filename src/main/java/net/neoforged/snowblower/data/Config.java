@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import net.neoforged.snowblower.util.Util;
-import net.minecraftforge.srgutils.MinecraftVersion;
+import net.neoforged.srgutils.MinecraftVersion;
 
 public record Config(Map<String, BranchSpec> branches) {
     public static Config load(Path file) throws IOException {

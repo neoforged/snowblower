@@ -41,7 +41,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonDeserializer;
 
-import net.minecraftforge.srgutils.MinecraftVersion;
+import net.neoforged.srgutils.MinecraftVersion;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

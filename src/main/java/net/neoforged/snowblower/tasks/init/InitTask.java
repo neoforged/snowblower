@@ -31,7 +31,7 @@ import org.eclipse.jgit.lib.ObjectId;
 import net.neoforged.snowblower.Generator;
 import net.neoforged.snowblower.Main;
 import net.neoforged.snowblower.util.Util;
-import net.minecraftforge.srgutils.MinecraftVersion;
+import net.neoforged.srgutils.MinecraftVersion;
 
 public class InitTask {
     private static final String COMMIT_MESSAGE = "Initial commit";

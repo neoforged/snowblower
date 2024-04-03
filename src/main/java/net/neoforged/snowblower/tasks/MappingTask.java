@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
 import net.neoforged.snowblower.data.Version;
 import net.neoforged.snowblower.util.Cache;
 import net.neoforged.snowblower.util.Util;
-import net.minecraftforge.srgutils.IMappingFile;
+import net.neoforged.srgutils.IMappingFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

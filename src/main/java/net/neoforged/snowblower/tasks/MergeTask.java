@@ -15,7 +15,7 @@ import net.neoforged.snowblower.util.Cache;
 import net.neoforged.snowblower.util.DependencyHashCache;
 import net.neoforged.snowblower.util.Tools;
 import net.neoforged.snowblower.util.Util;
-import net.minecraftforge.srgutils.IMappingFile;
+import net.neoforged.srgutils.IMappingFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
