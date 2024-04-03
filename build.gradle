@@ -53,7 +53,7 @@ dependencies {
     shade 'org.vineflower:vineflower:1.9.3'
     shade 'net.neoforged.installertools:installertools:2.1.2'
     shade 'net.neoforged:AutoRenamingTool:2.0.0'
-    shade 'net.neoforged:mergetool:2.0.1'
+    shade 'net.neoforged:mergetool:2.0.5'
 
     shade 'org.bouncycastle:bcpkix-jdk15on:1.58'
     shade 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.13.3'
