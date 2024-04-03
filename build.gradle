@@ -49,7 +49,7 @@ dependencies {
     shade 'org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r'
     shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'
     shade 'com.google.code.gson:gson:2.10.1'
-    shade 'net.neoforged:srgutils:1.0.0'
+    shade 'net.neoforged:srgutils:1.0.1'
     shade 'org.vineflower:vineflower:1.9.3'
     shade 'net.neoforged.installertools:installertools:2.1.2'
     shade 'net.neoforged:AutoRenamingTool:1.0.9'
