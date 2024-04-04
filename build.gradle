@@ -52,8 +52,8 @@ dependencies {
     shade 'net.neoforged:srgutils:1.0.1'
     shade 'org.vineflower:vineflower:1.9.3'
     shade 'net.neoforged.installertools:installertools:2.1.2'
-    shade 'net.neoforged:AutoRenamingTool:1.0.9'
-    shade 'net.neoforged:mergetool:2.0.1'
+    shade 'net.neoforged:AutoRenamingTool:2.0.0'
+    shade 'net.neoforged:mergetool:2.0.5'
 
     shade 'org.bouncycastle:bcpkix-jdk15on:1.58'
     shade 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.13.3'
@@ -139,6 +139,7 @@ license {
     header = file('LICENSE-header.txt')
     newLine = false
     exclude '**/*.properties'
+    exclude '**/*.xml'
     skipExistingHeaders true
 }
 
