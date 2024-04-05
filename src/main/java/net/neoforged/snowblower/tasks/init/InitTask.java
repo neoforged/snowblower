@@ -56,7 +56,7 @@ public class InitTask {
     public boolean validate(MinecraftVersion start) throws IOException, GitAPIException {
         var meta = new Cache().comment(
             "Source files created by Snowblower",
-            "https://github.com/MinecraftForge/Snowblower")
+            "https://github.com/neoforged/snowblower")
             .put("Snowblower", getGitCommitHash()) // Now that I moved this to its own package, we could use the package hash. But I like the git commit.
             .put("Start", start.toString());
 
