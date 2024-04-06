@@ -119,7 +119,7 @@ public class Generator implements AutoCloseable {
 
         var cfgBranch = cfg.branches() == null ? null : cfg.branches().get(branchName);
         if (cfgBranch == null) {
-            if (cliBranch.start() == null && cliBranch.end() == null && cliBranch.versions() == null)
+            if (cliBranch.start() == null && cliBranch.end() == null)
                 throw new IllegalArgumentException("Unknown branch config: " + branchName);
             this.branch = cliBranch;
         } else {
@@ -127,7 +127,9 @@ public class Generator implements AutoCloseable {
                 cfgBranch.type(),
                 cliBranch.start() == null ? cfgBranch.start() : cliBranch.start(),
                 cliBranch.end() == null ? cfgBranch.end() : cliBranch.end(),
-                cfgBranch.versions()
+                cfgBranch.versions(),
+                cfgBranch.includeVersions(),
+                cfgBranch.excludeVersions()
             );
         }
 
@@ -241,21 +243,23 @@ public class Generator implements AutoCloseable {
         if (manifest.versions() == null)
             throw new IllegalStateException("Failed to find versions, manifest missing versions listing");
 
-        var versions = Arrays.asList(manifest.versions());
-        /* Sort the list by release time.. in case Mojang screwed it up?
-            Arrays.stream(manifest.versions())
-            .sorted((a,b) -> b.releaseTime().compareTo(a.releaseTime())) // b to a, so its in descending order
-            .toList();
-        */
+        // Sorted from newest at index 0 to oldest at the end of the list
+        var versions = new ArrayList<>(Arrays.asList(manifest.versions()));
 
         var targetVer = this.branch.end();
         // If we have explicit filters, apply them
         if (this.branch.versions() != null) {
-            versions = versions.stream().filter(v -> this.branch.versions().contains(v.id())).toList();
+            versions.removeIf(v -> !this.branch.versions().contains(v.id()));
             if (targetVer == null)
                 targetVer = versions.get(0).id();
         } else {
-            versions = versions.stream().filter(v -> !v.id().getType().isSpecial()).toList();
+            var exclude = versions.stream().filter(v -> v.id().getType().isSpecial()).map(VersionInfo::id).collect(Collectors.toList());
+            if (this.branch.includeVersions() != null)
+                exclude.removeAll(this.branch.includeVersions());
+            if (this.branch.excludeVersions() != null)
+                exclude.addAll(this.branch.excludeVersions());
+
+            versions.removeIf(v -> exclude.contains(v.id()));
         }
 
         // Find the latest version from the manifest
@@ -267,8 +271,8 @@ public class Generator implements AutoCloseable {
             if (this.branch.type().equals("release"))
                 targetVer = lat.release();
             else {
-                var release = versions.stream().filter(e -> !lat.release().equals(e.id())).findFirst().orElse(null);
-                var snapshot = versions.stream().filter(e -> !lat.snapshot().equals(e.id())).findFirst().orElse(null);
+                var release = versions.stream().filter(e -> lat.release().equals(e.id())).findFirst().orElse(null);
+                var snapshot = versions.stream().filter(e -> lat.snapshot().equals(e.id())).findFirst().orElse(null);
                 if (release == null && snapshot == null)
                     throw new IllegalStateException("Failed to find latest, manifest specified " + lat.release() + " and " + lat.snapshot() + " and both are missing");
                 if (release == null)
@@ -314,8 +318,10 @@ public class Generator implements AutoCloseable {
             }
         }
 
-        if (startIdx == -1 || endIdx == -1)
-            throw new IllegalStateException("Could not find start and/or end version in version manifest (or they were out of order)");
+        if (startIdx == -1)
+            throw new IllegalStateException("Could not find start version in version list. Was it excluded? Start: " + startVer + ", End: " + targetVer);
+        if (endIdx == -1)
+            throw new IllegalStateException("Could not find end version in version list (or end version is earlier than start version). Was it excluded? Start: " + startVer + ", End: " + targetVer);
 
         List<VersionInfo> toGenerate = new ArrayList<>(versions.subList(endIdx, startIdx + 1));
         if (this.branch.type().equals("release"))

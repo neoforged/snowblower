@@ -25,6 +25,12 @@ public record Config(Map<String, BranchSpec> branches) {
         String type,
         MinecraftVersion start,
         MinecraftVersion end,
-        List<MinecraftVersion> versions
-    ) {}
+        List<MinecraftVersion> versions,
+        List<MinecraftVersion> includeVersions,
+        List<MinecraftVersion> excludeVersions
+    ) {
+        public BranchSpec(String type, MinecraftVersion start, MinecraftVersion end) {
+            this(type, start, end, null, null, null);
+        }
+    }
 }

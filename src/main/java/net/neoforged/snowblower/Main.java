@@ -92,7 +92,7 @@ public class Main {
         var targetVer = options.has(targetVerO) ? MinecraftVersion.from(options.valueOf(targetVerO)) : null;
         if (targetVer != null && targetVer.compareTo(startVer) < 0)
             throw new IllegalArgumentException("Target version must be greater than or equal to start version");
-        var cliBranch = new BranchSpec(options.has(releasesOnlyO) ? "release" : "all", startVer, targetVer, null);
+        var cliBranch = new BranchSpec(options.has(releasesOnlyO) ? "release" : "all", startVer, targetVer);
 
         String branchName = options.valueOf(branchNameO);
 
@@ -101,14 +101,18 @@ public class Main {
             URI configUri = options.valueOf(configO);
             try {
                 URL url = configUri.toURL();
-                cfg = Util.downloadJson(url, Config.class);
+                if ("file".equals(configUri.getScheme())) {
+                    cfg = Config.load(Util.getPath(configUri));
+                } else {
+                    cfg = Util.downloadJson(url, Config.class);
+                }
             } catch (MalformedURLException e) {
-                cfg = Config.load(Util.getPath(configUri));
+                throw new RuntimeException(e);
             }
         } else {
             Map<String, BranchSpec> branches = new HashMap<>();
-            branches.put("release", new BranchSpec("release", null, null, null));
-            branches.put("dev", new BranchSpec("all", null, null, null));
+            branches.put("release", new BranchSpec("release", null, null));
+            branches.put("dev", new BranchSpec("all", null, null));
             cfg = new Config(branches);
         }
 
