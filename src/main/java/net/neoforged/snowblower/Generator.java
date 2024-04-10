@@ -86,7 +86,7 @@ public class Generator implements AutoCloseable {
     private boolean removeRemote;
     private boolean freshIfRequired;
     private boolean partialCache;
-    private final String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1", "-ind=    "};
+    private final String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1", "-ind=    ", "-ump=0"};
 
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache, List<String> includes, List<String> excludes) {
         this.output = output.toAbsolutePath().normalize();
@@ -659,6 +659,7 @@ public class Generator implements AutoCloseable {
                 .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
                 .add(Transformer.recordFixerFactory())
                 .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
+                .add(Transformer.parameterFinalFlagRemoverFactory())
                 .logger(s -> {});
             libs.forEach(l -> builder.lib(l.toFile()));
             try (final var renamer = builder.build()) {
