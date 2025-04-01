@@ -13,6 +13,7 @@ import java.util.Map;
 
 import net.neoforged.snowblower.util.Util;
 import net.neoforged.srgutils.MinecraftVersion;
+import org.jetbrains.annotations.Nullable;
 
 public record Config(Map<String, BranchSpec> branches) {
     public static Config load(Path file) throws IOException {
@@ -23,11 +24,11 @@ public record Config(Map<String, BranchSpec> branches) {
 
     public record BranchSpec(
         String type,
-        MinecraftVersion start,
-        MinecraftVersion end,
-        List<MinecraftVersion> versions,
-        List<MinecraftVersion> includeVersions,
-        List<MinecraftVersion> excludeVersions
+        @Nullable MinecraftVersion start,
+        @Nullable MinecraftVersion end,
+        @Nullable List<MinecraftVersion> versions,
+        @Nullable List<MinecraftVersion> includeVersions,
+        @Nullable List<MinecraftVersion> excludeVersions
     ) {
         public BranchSpec(String type, MinecraftVersion start, MinecraftVersion end) {
             this(type, start, end, null, null, null);
