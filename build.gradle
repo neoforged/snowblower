@@ -41,27 +41,27 @@ configurations {
 }
 
 dependencies {
-    compileOnly 'org.jetbrains:annotations:24.1.0'
+    compileOnly 'org.jetbrains:annotations:26.0.2'
 
     // When updating shade dependencies, you must also run the generateDependencyHashes task
-    shade 'org.slf4j:slf4j-api:2.0.12'
-    shade 'ch.qos.logback:logback-classic:1.4.14'
-    shade 'org.eclipse.jgit:org.eclipse.jgit:6.4.0.202211300538-r'
+    shade 'org.slf4j:slf4j-api:2.0.17'
+    shade 'ch.qos.logback:logback-classic:1.5.18'
+    shade 'org.eclipse.jgit:org.eclipse.jgit:7.2.0.202503040940-r'
     shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'
-    shade 'com.google.code.gson:gson:2.10.1'
-    shade 'net.neoforged:srgutils:1.0.1'
-    shade 'org.vineflower:vineflower:1.10.0'
-    shade 'net.neoforged.installertools:installertools:2.1.2'
-    shade 'net.neoforged:AutoRenamingTool:2.0.0'
-    shade 'net.neoforged:mergetool:2.0.5'
+    shade 'com.google.code.gson:gson:2.12.1'
+    shade 'net.neoforged:srgutils:1.0.10'
+    shade 'org.vineflower:vineflower:1.11.1'
+    shade 'net.neoforged.installertools:installertools:3.0.2'
+    shade 'net.neoforged:AutoRenamingTool:2.0.8'
+    shade 'net.neoforged:mergetool:2.0.6'
 
-    shade 'org.bouncycastle:bcpkix-jdk15on:1.58'
-    shade 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.13.3'
+    shade 'org.bouncycastle:bcpkix-jdk18on:1.80'
+    shade 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3'
 
-    shade 'io.jsonwebtoken:jjwt-api:0.11.5'
-    shade 'io.jsonwebtoken:jjwt-impl:0.11.5'
-    shade 'io.jsonwebtoken:jjwt-jackson:0.11.5'
-    shade 'org.kohsuke:github-api:1.313'
+    shade 'io.jsonwebtoken:jjwt-api:0.12.6'
+    shade 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    shade 'io.jsonwebtoken:jjwt-jackson:0.12.6'
+    shade 'org.kohsuke:github-api:1.327'
 }
 
 tasks.register('generateDependencyHashes', DependencyHashingTask) {

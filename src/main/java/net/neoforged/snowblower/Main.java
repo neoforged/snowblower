@@ -14,6 +14,7 @@ import net.neoforged.snowblower.util.Util;
 import net.neoforged.srgutils.MinecraftVersion;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.transport.CredentialsProvider;
+import org.eclipse.jgit.transport.URIish;
 
 import java.io.File;
 import java.net.MalformedURLException;
@@ -39,7 +40,7 @@ public class Main {
         var startOverO = parser.accepts("start-over", "Whether to start over by deleting the target branch");
         var startOverIfRequiredO = parser.accepts("start-over-if-required", "Whether to start over by deleting the target branch, only if it is necessary to do so").availableUnless("start-over");
         var configO = parser.accepts("cfg", "Config file for SnowBlower").withRequiredArg().ofType(URI.class);
-        var remoteO = parser.accepts("remote", "The URL of the Git remote to use").withRequiredArg().ofType(URL.class);
+        var remoteO = parser.accepts("remote", "The URL of the Git remote to use").withRequiredArg().ofType(URIish.class);
         var checkoutO = parser.accepts("checkout", "Whether to checkout the remote branch (if it exists) before generating").availableIf("remote");
         var pushO = parser.accepts("push", "Whether to push the branch to the remote once finished").availableIf("remote");
         var committerO = parser.accepts("committer", "The name and email of the user to use as the committer, separated by a space. If omitted, defaults to snowforge").withRequiredArg();
@@ -82,7 +83,7 @@ public class Main {
         boolean startOver = options.has(startOverO);
         boolean startOverIfRequired = !startOver && options.has(startOverIfRequiredO);
         boolean partialCachce = options.has(partialCache);
-        URL remote = options.has(remoteO) ? options.valueOf(remoteO) : null;
+        URIish remote = options.has(remoteO) ? options.valueOf(remoteO) : null;
         boolean checkout = options.has(checkoutO);
         boolean push = options.has(pushO);
         List<String> includes = options.valuesOf(includeO);

@@ -86,7 +86,7 @@ public class Generator implements AutoCloseable {
     private boolean removeRemote;
     private boolean freshIfRequired;
     private boolean partialCache;
-    private final String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1", "-ind=    "};
+    private final String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1", "-ind=    ", "-ump=0"};
 
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache, List<String> includes, List<String> excludes) {
         this.output = output.toAbsolutePath().normalize();
@@ -97,7 +97,7 @@ public class Generator implements AutoCloseable {
         this.excludes = excludes;
     }
 
-    public Generator setup(String branchName, @Nullable URL remoteUrl, boolean checkout, boolean push, Config cfg, BranchSpec cliBranch,
+    public Generator setup(String branchName, @Nullable URIish remoteUrl, boolean checkout, boolean push, Config cfg, BranchSpec cliBranch,
             boolean fresh, boolean freshIfRequired, boolean partialCache) throws IOException, GitAPIException {
         try {
             this.git = Git.open(this.output.toFile());
@@ -185,11 +185,10 @@ public class Generator implements AutoCloseable {
         return deleteTemp;
     }
 
-    private void setupRemote(@Nullable URL remoteUrl) throws GitAPIException {
+    private void setupRemote(@Nullable URIish remoteUrl) throws GitAPIException {
         if (remoteUrl == null)
             return;
 
-        URIish remoteFakeUri = new URIish(remoteUrl);
         String foundRemote = null;
 
         Set<String> remoteNames = new HashSet<>();
@@ -202,7 +201,7 @@ public class Generator implements AutoCloseable {
                 continue;
 
             for (URIish fakeUri : remoteConfig.getURIs()) {
-                if (fakeUri.equals(remoteFakeUri)) {
+                if (fakeUri.equals(remoteUrl)) {
                     foundRemote = currRemoteName;
                     break;
                 }
@@ -217,7 +216,7 @@ public class Generator implements AutoCloseable {
                 foundRemote = "origin" + i;
             }
 
-            this.git.remoteAdd().setName(foundRemote).setUri(remoteFakeUri).call();
+            this.git.remoteAdd().setName(foundRemote).setUri(remoteUrl).call();
             this.removeRemote = true;
         }
 
@@ -665,6 +664,7 @@ public class Generator implements AutoCloseable {
                 .add(Transformer.sourceFixerFactory(SourceFixerConfig.JAVA))
                 .add(Transformer.recordFixerFactory())
                 .add(Transformer.signatureStripperFactory(SignatureStripperConfig.ALL))
+                .add(Transformer.parameterFinalFlagRemoverFactory())
                 .logger(s -> {});
             libs.forEach(l -> builder.lib(l.toFile()));
             try (final var renamer = builder.build()) {
