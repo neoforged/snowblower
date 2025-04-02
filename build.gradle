@@ -104,8 +104,8 @@ tasks.named('idea').configure {
 }
 
 tasks.named('jar', Jar).configure {
-    from('gradle') {
-        into 'gradle'
+    from('gradle/wrapper') {
+        into 'gradle/wrapper'
     }
     manifest {
         attributes([
@@ -119,8 +119,8 @@ tasks.named('shadowJar', ShadowJar).configure {
     archiveClassifier = 'all'
     configurations = [project.configurations.shade]
 
-    from('gradle') {
-        into 'gradle'
+    from('gradle/wrapper') {
+        into 'gradle/wrapper'
         rename '(.+).jar', '$1.zip'
     }
 

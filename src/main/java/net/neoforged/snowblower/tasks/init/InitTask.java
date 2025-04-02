@@ -108,7 +108,7 @@ public class InitTask {
 
             try {
                 Path copyParentFolder = Util.isDev() ? Util.getSourcePath() : Util.getPath(Main.class.getResource("/resource_root.txt").toURI()).getParent();
-                List<String> toCopy = List.of("gradlew", "gradlew.bat", "gradle");
+                List<String> toCopy = List.of("gradlew", "gradlew.bat", "gradle/wrapper");
                 AddCommand addCmd = git.add();
 
                 for (String filename : toCopy) {
