@@ -86,11 +86,12 @@ public class Generator implements AutoCloseable {
     private boolean removeRemote;
     private boolean freshIfRequired;
     private boolean partialCache;
+    // For comparison, see NeoForm parameters for a recent Minecraft version here:
+    // https://github.com/neoforged/NeoForm/blob/main/versions/release/1.21.5/config.json#L10
     private final String[] decompileArgs = new String[]{
         "--decompile-inner", "--remove-bridge", "--decompile-generics", "--ascii-strings", "--remove-synthetic", "--include-classpath", "--variable-renaming=jad", "--rename-parameters", "--no-inline-simple-lambdas", "--ignore-invalid-bytecode", "--bytecode-source-mapping", "--dump-code-lines", "-ind=    ", "--no-use-method-parameters"
     };
-        "args": ["--decompile-inner", "--remove-bridge", "--decompile-generics", "--ascii-strings", "--remove-synthetic", "--include-classpath", "--variable-renaming=jad", "--ignore-invalid-bytecode", "--bytecode-source-mapping", "--dump-code-lines", "--indent-string=    ", "--log-level=TRACE", "-cfg", "{libraries}", "{input}", "{output}"],
-
+    
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache, List<String> includes, List<String> excludes) {
         this.output = output.toAbsolutePath().normalize();
         this.cache = cache.toAbsolutePath().normalize();
