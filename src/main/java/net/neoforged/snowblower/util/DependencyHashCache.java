@@ -4,9 +4,11 @@
  */
 package net.neoforged.snowblower.util;
 
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,14 +19,16 @@ public class DependencyHashCache {
         this.hashes = hashes;
     }
 
-    public static DependencyHashCache load(Path path) throws IOException {
+    public static DependencyHashCache load(InputStream stream) throws IOException {
         Map<String, String> hashes = new HashMap<>();
 
-        Files.readAllLines(path).forEach(line -> {
+        var reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        String line;
+        while ((line = reader.readLine()) != null) {
             int commentIdx = line.indexOf('#');
             int equalIdx = line.indexOf('=');
             if (commentIdx == 0 || equalIdx == -1)
-                return;
+                continue;
 
             if (commentIdx != -1)
                 line = line.substring(0, commentIdx).trim();
@@ -32,7 +36,7 @@ public class DependencyHashCache {
             String key = line.substring(0, equalIdx);
             String value = line.substring(equalIdx + 1);
             hashes.put(key, value);
-        });
+        }
 
         return new DependencyHashCache(hashes);
     }

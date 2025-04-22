@@ -6,9 +6,11 @@ package net.neoforged.snowblower.tasks.init;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.nio.file.FileSystems;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -106,8 +108,8 @@ public class InitTask {
             );
             Util.add(git, ignore);
 
-            try {
-                Path copyParentFolder = Util.isDev() ? Util.getSourcePath() : Util.getPath(Main.class.getResource("/resource_root.txt").toURI()).getParent();
+            try (var fs = FileSystems.newFileSystem(getOurJar(), (ClassLoader) null)) {
+                Path copyParentFolder = Util.isDev() ? Util.getSourcePath() : fs.getRootDirectories().iterator().next();
                 List<String> toCopy = List.of("gradlew", "gradlew.bat", "gradle/wrapper");
                 AddCommand addCmd = git.add();
 
@@ -130,8 +132,6 @@ public class InitTask {
                 }
 
                 addCmd.call();
-            } catch (URISyntaxException e) {
-                throw new RuntimeException(e);
             }
 
             DirCache dirCache = git.getRepository().lockDirCache();
@@ -151,6 +151,14 @@ public class InitTask {
         }
 
         return true;
+    }
+
+    private Path getOurJar() {
+        try {
+            return Paths.get(InitTask.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static String getGitCommitHash() {

@@ -14,8 +14,6 @@ import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.FileSystemNotFoundException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -56,23 +54,6 @@ public class Util {
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
     public static PersonIdent COMMITTER = new PersonIdent("snowforge[bot]", "127516132+snowforge[bot]@users.noreply.github.com");
-
-    public static Path getPath(URI uri) {
-        try {
-            return Path.of(uri);
-        } catch (FileSystemNotFoundException e) {
-            if (uri.getScheme().equals("jar")) {
-                try {
-                    FileSystems.newFileSystem(uri, Map.of());
-                } catch (IOException ex) {
-                    throw new RuntimeException(ex);
-                }
-                return Path.of(uri);
-            }
-
-            throw e;
-        }
-    }
 
     public static boolean isDev() {
         return Main.class.getPackage().getImplementationVersion() == null;

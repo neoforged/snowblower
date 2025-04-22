@@ -70,10 +70,10 @@ public class Main {
                     app -> app.getInstallationByRepository(splitRepo[0], splitRepo[1]).createToken().create()));
         }
 
-        var depHashCacheUrl = Main.class.getResource("/dependency_hashes.txt");
+        var depHashCacheUrl = Main.class.getResourceAsStream("/dependency_hashes.txt");
         if (depHashCacheUrl == null)
             throw new IllegalStateException("Could not find dependency_hashes.txt on classpath");
-        var depCache = DependencyHashCache.load(Util.getPath(depHashCacheUrl.toURI()));
+        var depCache = DependencyHashCache.load(depHashCacheUrl);
 
         File output = options.valueOf(outputO);
         File cache = options.valueOf(cacheO);
@@ -103,7 +103,7 @@ public class Main {
             try {
                 URL url = configUri.toURL();
                 if ("file".equals(configUri.getScheme())) {
-                    cfg = Config.load(Util.getPath(configUri));
+                    cfg = Config.load(Paths.get(configUri));
                 } else {
                     cfg = Util.downloadJson(url, Config.class);
                 }
