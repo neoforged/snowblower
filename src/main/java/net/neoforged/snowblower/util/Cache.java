@@ -5,7 +5,6 @@
 package net.neoforged.snowblower.util;
 
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -38,36 +37,6 @@ public class Cache {
 
     public Cache put(String key, DependencyHashCache depCache) {
         data.put(key, depCache.getHash(key));
-        return this;
-    }
-
-    public Cache put(Class<?> codeClass) {
-        try {
-            Path folderPath = Util.getPath(codeClass.getProtectionDomain().getCodeSource().getLocation().toURI());
-            String packageName = codeClass.getPackageName();
-            String[] packageParts = packageName.split("\\.");
-            String keyPrefix = packageName.replace('.', '/') + '/';
-
-            for (String packagePart : packageParts) {
-                folderPath = folderPath.resolve(packagePart);
-            }
-
-            String className = codeClass.getName().substring(codeClass.getName().lastIndexOf('.') + 1);
-
-            try (Stream<Path> walker = Files.list(folderPath)) {
-                // Includes inner classes
-                walker.filter(p -> p.getFileName().toString().startsWith(className) && Files.isRegularFile(p)).forEach(p -> {
-                    try {
-                        put(keyPrefix + p.getFileName().toString(), p);
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
-            }
-        } catch (URISyntaxException | IOException e) {
-            throw new RuntimeException(e);
-        }
-
         return this;
     }
 

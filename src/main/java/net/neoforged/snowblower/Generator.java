@@ -86,8 +86,26 @@ public class Generator implements AutoCloseable {
     private boolean removeRemote;
     private boolean freshIfRequired;
     private boolean partialCache;
-    private final String[] decompileArgs = new String[]{"-din=1", "-rbr=1", "-dgs=1", "-asc=1", "-rsy=1", "-iec=1", "-jvn=1", "-jpr=1", "-isl=0", "-iib=1", "-bsm=1", "-dcl=1", "-ind=    ", "-ump=0"};
-
+    private final String[] decompileArgs = new String[]{
+            // For comparison, see NeoForm parameters for a recent Minecraft version here:
+            // https://github.com/neoforged/NeoForm/blob/main/versions/release/1.21.5/config.json#L10
+            "--decompile-inner",
+            "--remove-bridge",
+            "--decompile-generics",
+            "--ascii-strings",
+            "--remove-synthetic",
+            "--include-classpath",
+            "--variable-renaming=jad",
+            "--ignore-invalid-bytecode",
+            "--bytecode-source-mapping",
+            "--dump-code-lines",
+            "--indent-string=    ",
+            // These parameters are exclusive to Snowblower, since we do not overwrite all method parameters
+            // using generated SRG parameter names, we also apply JAD renaming here.
+            "--rename-parameters",
+            "--no-use-method-parameters"
+    };
+    
     public Generator(Path output, Path cache, Path extraMappings, DependencyHashCache depCache, List<String> includes, List<String> excludes) {
         this.output = output.toAbsolutePath().normalize();
         this.cache = cache.toAbsolutePath().normalize();
