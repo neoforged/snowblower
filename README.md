@@ -14,7 +14,7 @@ The most common use case is to generate a comprehensive repository of all suppor
 java -jar Snowblower.jar --output $OUTPUT --branch $BRANCH --start-over-if-required
 ```
 
-- `--output $OUTPUT`: Specifies the output directory for the generated repo.
+- `--output $OUTPUT`: Specifies the output directory for the generated repository.
   - This can be specified either as an absolute path or some path releative to the `jar` file.
   - `output/$BRANCH` or `output/$VERSION` is recommended to keep your generated repositories organized. (`$VERSION` being a specific Minecraft version)
 - `--branch $BRANCH`: Designates the target branch, which can be `release` or `dev`.
