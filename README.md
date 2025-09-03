@@ -11,10 +11,12 @@ You can download the latest and previous versions of Snowblower directly from it
 The most common use case is to generate a comprehensive repository of all supported versions. The following command processes every version starting from `1.14.4`, which is the first version where official Mojang mappings are available.
 
 ```sh
-java -jar Snowblower.jar --output output/$BRANCH --branch $BRANCH --start-over-if-required
+java -jar Snowblower.jar --output $OUTPUT --branch $BRANCH --start-over-if-required
 ```
 
-- `--output output/$BRANCH`: Specifies the output directory for the generated repo.
+- `--output $OUTPUT`: Specifies the output directory for the generated repo.
+  - This can be specified either as an absolute path or some path releative to the `jar` file.
+  - `output/$BRANCH` or `output/$VERSION` is recommended to keep your generated repositories organized. (`$VERSION` being a specific Minecraft version)
 - `--branch $BRANCH`: Designates the target branch, which can be `release` or `dev`.
   - Using `dev` will include snapshots in the generated output.
 - `--start-over-if-required`: Ensures the process starts from scratch if necessary.
@@ -25,14 +27,14 @@ java -jar Snowblower.jar --output output/$BRANCH --branch $BRANCH --start-over-i
 To prevent repository clutter and large diffs, especially with structures (`.nbt`) and images (`.png`), it is recommended to exclude them. These files frequently change due to internal version values, causing noise in the commit history.
 
 ```sh
-java -jar Snowblower.jar --output output/$BRANCH --branch $BRANCH --exclude "**.nbt" --exclude "**.png" --start-over-if-required
+java -jar Snowblower.jar --output $OUTPUT --branch $BRANCH --exclude "**.nbt" --exclude "**.png" --start-over-if-required
 ```
 
 #### Processing specific versions
 If you need to generate a repository for a limited range of versions, you can use the `--start-ver` and `--target-ver` flags. This will process everything from the specified start version up to and including the target version.
 
 ```sh
-java -jar Snowblower.jar --output output/$BRANCH --branch $BRANCH --start-ver 1.20.1 --target-ver 1.21 --start-over-if-required
+java -jar Snowblower.jar --output $OUTPUT --branch $BRANCH --start-ver 1.20.1 --target-ver 1.21 --start-over-if-required
 ```
 
 #### Exploring more flags
