@@ -160,7 +160,7 @@ public class Util {
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
-                waitTime = waitTime * ((long) Math.pow(2, attempts));
+                waitTime = Math.min(waitTime * ((long) Math.pow(2, attempts)), 64_000L);
 
                 attempts++;
 
