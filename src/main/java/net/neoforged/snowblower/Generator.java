@@ -365,6 +365,11 @@ public class Generator implements AutoCloseable {
         // Filter version list to only versions that have mappings
         toGenerate = findVersionsWithMappings(toGenerate, cache, extraMappings);
 
+        // Download all artifacts ahead of time before decompilation
+        downloadAllLibraries(toGenerate, cache);
+        downloadAllClientServerJars(toGenerate, cache);
+        downloadAllMappings(toGenerate, cache, extraMappings);
+
         pushRemainingCommits(); // Push old commits in increments of 10 in case we didn't push them then
 
         var libs = this.cache.resolve("libraries");
@@ -491,6 +496,177 @@ public class Generator implements AutoCloseable {
 
         }
         return ret;
+    }
+
+    /**
+     * Downloads all libraries for all versions ahead of time before decompilation begins.
+     * This improves efficiency by front-loading all artifact downloads.
+     */
+    private static void downloadAllLibraries(List<VersionInfo> versions, Path cache) throws IOException {
+        if (versions.isEmpty()) {
+            return;
+        }
+
+        LOGGER.info("Discovering and downloading all libraries for {} versions", versions.size());
+
+        var libCache = cache.resolve("libraries");
+
+        // Collect all unique library downloads across all versions
+        Set<Version.Download> uniqueLibraries = new HashSet<>();
+        int totalVersions = versions.size();
+
+        for (int i = 0; i < totalVersions; i++) {
+            var versionInfo = versions.get(i);
+            var versionCache = cache.resolve(versionInfo.id().toString());
+            var json = versionCache.resolve("version.json");
+
+            // The version.json should already exist from findVersionsWithMappings
+            if (!Files.exists(json)) {
+                LOGGER.warn("Version manifest for {} not found, skipping library discovery", versionInfo.id());
+                continue;
+            }
+
+            var version = Version.load(json);
+            if (version.libraries() != null) {
+                for (var lib : version.libraries()) {
+                    if (lib.downloads() != null && lib.downloads().containsKey("artifact")) {
+                        uniqueLibraries.add(lib.downloads().get("artifact"));
+                    }
+                }
+            }
+        }
+
+        LOGGER.info("Found {} unique libraries to download", uniqueLibraries.size());
+
+        // Download all libraries
+        int downloaded = 0;
+        int alreadyCached = 0;
+        for (var dl : uniqueLibraries) {
+            var target = libCache.resolve(dl.path());
+
+            if (Files.exists(target)) {
+                alreadyCached++;
+                continue;
+            }
+
+            Files.createDirectories(target.getParent());
+            Util.downloadFile(target, dl.url(), dl.sha1());
+            downloaded++;
+
+            if (downloaded % 50 == 0) {
+                LOGGER.info("Downloaded {}/{} libraries ({} already cached)",
+                    downloaded, uniqueLibraries.size() - alreadyCached, alreadyCached);
+            }
+        }
+
+        LOGGER.info("Library download complete: {} downloaded, {} already cached", downloaded, alreadyCached);
+    }
+
+    /**
+     * Downloads all client and server JARs for all versions ahead of time.
+     */
+    private static void downloadAllClientServerJars(List<VersionInfo> versions, Path cache) throws IOException {
+        if (versions.isEmpty()) {
+            return;
+        }
+
+        LOGGER.info("Downloading client and server JARs for {} versions", versions.size());
+
+        int downloaded = 0;
+        int alreadyCached = 0;
+
+        for (var versionInfo : versions) {
+            var versionCache = cache.resolve(versionInfo.id().toString());
+            var json = versionCache.resolve("version.json");
+
+            if (!Files.exists(json)) {
+                LOGGER.warn("Version manifest for {} not found, skipping JAR download", versionInfo.id());
+                continue;
+            }
+
+            var version = Version.load(json);
+
+            // Download client JAR
+            for (String type : List.of("client", "server")) {
+                var jar = versionCache.resolve(type + ".jar");
+                var keyF = versionCache.resolve(type + ".jar.cache");
+                var dl = version.downloads().get(type);
+
+                if (dl == null || dl.sha1() == null) {
+                    LOGGER.warn("No {} JAR download info for {}", type, versionInfo.id());
+                    continue;
+                }
+
+                var key = new Cache().put(type, dl.sha1());
+
+                if (!Files.exists(jar) || !key.isValid(keyF)) {
+                    Util.downloadFile(jar, dl.url(), dl.sha1());
+                    key.put(type, jar);
+                    key.write(keyF);
+                    downloaded++;
+                } else {
+                    alreadyCached++;
+                }
+            }
+        }
+
+        LOGGER.info("JAR download complete: {} downloaded, {} already cached", downloaded, alreadyCached);
+    }
+
+    /**
+     * Downloads all mappings for all versions ahead of time.
+     */
+    private static void downloadAllMappings(List<VersionInfo> versions, Path cache, Path extraMappings) throws IOException {
+        if (versions.isEmpty()) {
+            return;
+        }
+
+        LOGGER.info("Downloading mappings for {} versions", versions.size());
+
+        int downloaded = 0;
+        int alreadyCached = 0;
+
+        for (var versionInfo : versions) {
+            var versionCache = cache.resolve(versionInfo.id().toString());
+            var json = versionCache.resolve("version.json");
+
+            if (!Files.exists(json)) {
+                LOGGER.warn("Version manifest for {} not found, skipping mappings download", versionInfo.id());
+                continue;
+            }
+
+            var version = Version.load(json);
+
+            // Download client and server mappings
+            for (String type : List.of("client", "server")) {
+                var mappings = versionCache.resolve(type + "_mappings.txt");
+
+                if (!Files.exists(mappings)) {
+                    boolean copiedFromExtra = false;
+
+                    if (extraMappings != null) {
+                        Path extraMap = extraMappings.resolve(version.type()).resolve(version.id().toString()).resolve("maps").resolve(type + ".txt");
+                        if (Files.exists(extraMap)) {
+                            Files.copy(extraMap, mappings, StandardCopyOption.REPLACE_EXISTING);
+                            copiedFromExtra = true;
+                            alreadyCached++;
+                        }
+                    }
+
+                    if (!copiedFromExtra) {
+                        if (Util.downloadFile(mappings, version, type + "_mappings")) {
+                            downloaded++;
+                        } else {
+                            alreadyCached++;
+                        }
+                    }
+                } else {
+                    alreadyCached++;
+                }
+            }
+        }
+
+        LOGGER.info("Mappings download complete: {} downloaded, {} already cached", downloaded, alreadyCached);
     }
 
     /**
