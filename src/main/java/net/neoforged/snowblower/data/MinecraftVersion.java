@@ -14,6 +14,8 @@ import java.util.regex.Pattern;
 
 public record MinecraftVersion(Type type, String version) {
     // Version formats per slicedlime - https://x.com/slicedlime/status/1995886660417192442
+    // <year>.<drop>[.<hotfix>][-<snapshot-type>-<build>]
+    // where <snapshot-type> can be: snapshot, pre, rc
     private static final Pattern RELEASE = Pattern.compile("\\d+\\.\\d+(?:\\.\\d+)?");
     private static final Pattern SNAPSHOT_PRE_RC = Pattern.compile(RELEASE.pattern() + "(?: Pre-Release |-rc-?|-pre-?|-snapshot-)\\d+|\\d{2}w\\d{2}[a-z]");
 
