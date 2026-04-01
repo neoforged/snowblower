@@ -283,6 +283,7 @@ public class Generator implements AutoCloseable {
         // Allow resuming by finding the last thing we generated
         int skipCount = this.getSkipCount(versions, filteredVersions, toGenerate, range[0]);
         if (skipCount == -1) {
+            // An error occurred (already logged), so stop processing
             return;
         } else if (skipCount != 0) {
             toGenerate = toGenerate.subList(skipCount, toGenerate.size());
