@@ -52,6 +52,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -340,7 +341,7 @@ public class Generator implements AutoCloseable {
             if (targetVer == null)
                 targetVer = filteredVersions.getLast().id();
         } else {
-            var exclude = filteredVersions.stream().map(VersionInfo::id).filter(id -> id.type().isSpecial()).collect(Collectors.toSet());
+            var exclude = filteredVersions.stream().map(VersionInfo::id).filter(id -> id.type().isSpecial()).collect(Collectors.toCollection(LinkedHashSet::new));
             exclude.addAll(UnobfuscatedVersions.getVersionsToExclude());
             if (this.branch.includeVersions() != null)
                 this.branch.includeVersions().forEach(exclude::remove);
