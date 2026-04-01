@@ -52,8 +52,6 @@ public class Main {
 
         var githubAppId = parser.accepts("github-app-id", "The ID of a GitHub app to use for git auth").withRequiredArg().ofType(String.class);
         var githubInstallationRepo = parser.accepts("github-installation-repo", "The name of the repository to use as the installation target of the GitHub app").availableIf(githubAppId).withRequiredArg();
-        var githubActionsO = parser.accepts("github-actions", "Whether Snowblower is being executed in a GitHub Actions environment (to enhance logging); defaults to the parsed boolean value of the \"GITHUB_ACTIONS\" environment variable if available")
-                .withOptionalArg().ofType(Boolean.class).defaultsTo(Boolean.valueOf(System.getenv("GITHUB_ACTIONS")));
 
         OptionSet options;
         try {
@@ -98,7 +96,7 @@ public class Main {
 
         String branchName = options.valueOf(branchNameO);
 
-        GitHubActions.setEnvironment(options.valueOf(githubActionsO));
+        GitHubActions.setEnvironment(Boolean.parseBoolean(System.getenv("GITHUB_ACTIONS")));
 
         Config cfg;
         if (options.has(configO)) {
