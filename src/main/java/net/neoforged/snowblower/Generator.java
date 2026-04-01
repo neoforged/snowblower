@@ -640,7 +640,7 @@ public class Generator implements AutoCloseable {
         Path decomped = DecompileTask.checkPartialCache(cache, version, depCache, partialCache);
 
         if (decomped == null) {
-            var mappings = MappingTask.getMergedMappings(cache, version, extraMappings);
+            var mappings = MappingTask.getMergedMappings(cache, version);
             if (!version.isUnobfuscated() && mappings == null)
                 return;
 

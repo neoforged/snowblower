@@ -7,7 +7,6 @@ package net.neoforged.snowblower.tasks;
 import net.neoforged.snowblower.data.Version;
 import net.neoforged.snowblower.util.Cache;
 import net.neoforged.snowblower.util.DependencyHashCache;
-import net.neoforged.snowblower.util.Util;
 import net.neoforged.srgutils.IMappingFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +14,6 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Function;
@@ -44,6 +42,7 @@ public class MappingTask {
         return key;
     }
 
+    @SuppressWarnings("unused") // depCache is kept for parity with other similar methods
     public static boolean inPartialCache(Path cache, Version version, DependencyHashCache depCache) throws IOException {
         var mappings = cache.resolve(MAPPINGS_FILENAME);
         if (!Files.exists(mappings))
@@ -55,16 +54,16 @@ public class MappingTask {
         return Files.exists(keyF) && key.isValid(keyF);
     }
 
-    public static Path getMergedMappings(Path cache, Version version, Path extraMappings) throws IOException {
+    public static Path getMergedMappings(Path cache, Version version) throws IOException {
         boolean unobfuscated = version.isUnobfuscated();
-        var clientMojToObf = downloadMappings(cache, extraMappings, version, unobfuscated, "client");
+        var clientMojToObf = downloadMappings(cache, "client");
 
         if (!unobfuscated && clientMojToObf == null) {
             LOGGER.debug("Client mappings not found, skipping version");
             return null;
         }
 
-        var serverMojToObf = downloadMappings(cache, extraMappings, version, unobfuscated, "server");
+        var serverMojToObf = downloadMappings(cache, "server");
 
         if (!unobfuscated && serverMojToObf == null) {
             LOGGER.debug("Server mappings not found, skipping version");
@@ -90,7 +89,7 @@ public class MappingTask {
         return ret;
     }
 
-    private static IMappingFile downloadMappings(Path cache, Path extraMappings, Version version, boolean unobfuscated, String type) throws IOException {
+    private static IMappingFile downloadMappings(Path cache, String type) throws IOException {
         var mappings = cache.resolve(type + "_mappings.txt");
 
         if (!Files.exists(mappings))
