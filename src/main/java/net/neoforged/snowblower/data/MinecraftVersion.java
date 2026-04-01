@@ -54,20 +54,10 @@ public record MinecraftVersion(Type type, String version) {
     public enum Type {
         RELEASE,
         SNAPSHOT,
-        SPECIAL(true);
-
-        private final boolean special;
-
-        Type() {
-            this(false);
-        }
-
-        Type(boolean special) {
-            this.special = special;
-        }
+        SPECIAL;
 
         public boolean isSpecial() {
-            return this.special;
+            return this == SPECIAL;
         }
     }
 
