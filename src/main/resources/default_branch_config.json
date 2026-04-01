@@ -1,9 +1,9 @@
 {
   "branches": {
-    "release": {
+    "releases": {
       "type": "release"
     },
-    "dev": {
+    "snapshots": {
       "type": "all"
     },
     "april-fools/20w14infinite": {
