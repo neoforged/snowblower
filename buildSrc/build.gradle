@@ -6,6 +6,5 @@ java.toolchain.languageVersion.set(JavaLanguageVersion.of(8))
 
 license {
     header = new File(projectDir.parentFile, 'HEADER')
-    ext.fullname = 'Forge Development LLC'
     exclude '**/*.properties'
 }
