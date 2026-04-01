@@ -63,7 +63,7 @@ java -jar snowblower-2.0.31-all.jar --output ./output --branch release --exclude
 
 ### April Fools' Day versions
 
-Snowblower also supports generating branches for April Fools' Day versions, separate from the mainline releases. Snowblower includes default support for `20w14infinite`, `22w13oneblockatatime`, `23w13a_or_b`, `24w14potato`, and `25w14craftmine` under the branch name `april-fools/<version>`. These branches will generate exactly two versions: the base version that the given April Fools' Day version is believed to have been forked from, and the April Fools' Day version itself.
+Snowblower also supports generating branches for April Fools' Day versions, separate from the mainline releases. Snowblower includes default support for `20w14infinite`, `22w13oneblockatatime`, `23w13a_or_b`, `24w14potato`, `25w14craftmine`, and `26w14a` under the branch name `april-fools/<version>`. These branches will generate exactly two versions: the base version that the given April Fools' Day version is believed to have been forked from, and the April Fools' Day version itself.
 
 To customize your own branches (for later April Fools' Day versions or otherwise), consult [the default branch config](src/main/resources/default_branch_config.json) as a guide. You can pass your own branch configs using the `--cfg <uri>` flag, either passing it by `file://` or `https://`.
 

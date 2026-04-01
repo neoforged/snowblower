@@ -25,6 +25,10 @@
     "april-fools/25w14craftmine": {
       "type": "all",
       "versions": ["1.21.5-rc1", "25w14craftmine"]
+    },
+    "april-fools/26w14a": {
+      "type": "all",
+      "versions": ["26.1.1", "26w14a"],
     }
   }
 }
