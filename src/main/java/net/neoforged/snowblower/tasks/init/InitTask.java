@@ -88,7 +88,7 @@ public class InitTask {
             Util.add(git, ignore);
 
             try (var fs = Util.isDev() ? null : FileSystems.newFileSystem(getOurJar(), (ClassLoader) null)) {
-                Path copyParentFolder = Util.isDev() ? Util.getSourcePath() : fs.getRootDirectories().iterator().next();
+                Path copyParentFolder = fs == null ? Util.getSourcePath() : fs.getRootDirectories().iterator().next();
                 List<String> toCopy = List.of("gradlew", "gradlew.bat", "gradle/wrapper");
                 AddCommand addCmd = git.add();
 
