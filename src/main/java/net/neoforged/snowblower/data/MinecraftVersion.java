@@ -10,6 +10,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 
 import java.util.Objects;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public record MinecraftVersion(Type type, String version) {
@@ -17,7 +18,9 @@ public record MinecraftVersion(Type type, String version) {
     // <year>.<drop>[.<hotfix>][-<snapshot-type>-<build>]
     // where <snapshot-type> can be: snapshot, pre, rc
     private static final Pattern RELEASE = Pattern.compile("\\d+\\.\\d+(?:\\.\\d+)?");
-    private static final Pattern SNAPSHOT_PRE_RC = Pattern.compile(RELEASE.pattern() + "(?: Pre-Release |-rc-?|-pre-?|-snapshot-)\\d+|\\d{2}w\\d{2}[a-z]");
+    private static final Pattern SNAPSHOT_PRE_RC = Pattern.compile(RELEASE.pattern() + "(?: Pre-Release |-rc-?|-pre-?|-snapshot-)\\d+");
+    // Needed due to potential April Fools quirk; see comment below
+    private static final Pattern OLD_SNAPSHOT_FORMAT = Pattern.compile("(\\d{2})w\\d{2}[a-z]");
 
     public static MinecraftVersion from(final String version) {
         String versionToCheck = version;
@@ -25,7 +28,18 @@ public record MinecraftVersion(Type type, String version) {
             versionToCheck = versionToCheck.substring(0, versionToCheck.length() - "_unobfuscated".length());
 
         Type type = Type.SPECIAL;
-        if (SNAPSHOT_PRE_RC.matcher(versionToCheck).matches()) {
+        // Mojang released an April Fools snapshot, 26w14a, matching the old version format. This breaks the assumption
+        // that special versions, like April Fools snapshots, have non-conventional versions.
+        // To workaround this, any snapshot versions that match the old format but with the '26' year and beyond
+        // are assumed to be special versions. (Mojang changed to the new format in 2026.)
+        Matcher oldSnapshotMatcher = OLD_SNAPSHOT_FORMAT.matcher(versionToCheck);
+        if (oldSnapshotMatcher.matches()) {
+            int year = Integer.parseInt(oldSnapshotMatcher.group(1));
+            if (year < 26) {
+                // Lower than the year '26'; assume it's a regular (old format) snapshot
+                type = Type.SNAPSHOT;
+            }
+        } else if (SNAPSHOT_PRE_RC.matcher(versionToCheck).matches()) {
             type = Type.SNAPSHOT;
         } else if (RELEASE.matcher(versionToCheck).matches()) {
             type = Type.RELEASE;
