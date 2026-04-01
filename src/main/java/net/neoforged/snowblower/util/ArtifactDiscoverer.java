@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Forge Development LLC
+ * Copyright (c) NeoForged
  * SPDX-License-Identifier: LGPL-2.1-only
  */
 package net.neoforged.snowblower.util;
