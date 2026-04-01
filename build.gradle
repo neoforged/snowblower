@@ -13,7 +13,7 @@ plugins {
     id 'net.neoforged.gradleutils' version '5.1.1'
 }
 
-group 'net.neoforged'
+group = 'net.neoforged'
 base {
     archivesName.set('snowblower')
 }
@@ -125,10 +125,6 @@ tasks.named('shadowJar', ShadowJar).configure {
     }
 
     finalizedBy 'shadowJarFixup'
-}
-
-artifacts {
-    archives tasks.named('shadowJar', ShadowJar)
 }
 
 changelog {
