@@ -2,7 +2,7 @@
  * Copyright (c) NeoForged
  * SPDX-License-Identifier: LGPL-2.1-only
  */
-package net.neoforged.snowblower;
+package net.neoforged.snowblower.github;
 
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;

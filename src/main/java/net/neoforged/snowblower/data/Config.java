@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Map;
 
 import net.neoforged.snowblower.util.Util;
-import net.neoforged.srgutils.MinecraftVersion;
 import org.jetbrains.annotations.Nullable;
 
 public record Config(Map<String, BranchSpec> branches) {

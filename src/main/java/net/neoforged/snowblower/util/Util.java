@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import net.neoforged.snowblower.Main;
+import net.neoforged.snowblower.data.MinecraftVersion;
 import net.neoforged.snowblower.data.Version;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -37,9 +38,7 @@ import org.eclipse.jgit.lib.PersonIdent;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonDeserializer;
 
-import net.neoforged.srgutils.MinecraftVersion;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,12 +46,13 @@ import org.slf4j.LoggerFactory;
 public class Util {
     private static final Logger LOGGER = LoggerFactory.getLogger(Util.class);
     public static final Gson GSON = new GsonBuilder()
-        .registerTypeAdapter(MinecraftVersion.class, (JsonDeserializer<MinecraftVersion>) (json, typeOfT, context) -> MinecraftVersion.from(json.getAsString()))
+        .registerTypeAdapter(MinecraftVersion.class, MinecraftVersion.Deserializer.INSTANCE)
         .create();
     public static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
         .connectTimeout(Duration.of(5, ChronoUnit.SECONDS))
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
+    public static final long MAX_REQUEST_WAIT_MS = 64_000L;
     public static PersonIdent COMMITTER = new PersonIdent("snowforge[bot]", "127516132+snowforge[bot]@users.noreply.github.com");
 
     public static boolean isDev() {
@@ -102,7 +102,13 @@ public class Util {
             Files.createDirectories(file.getParent());
         }
 
-        download(url, () -> HttpResponse.BodyHandlers.ofFile(file));
+        if (url.getProtocol().equals("file") || url.getProtocol().equals("jar")) {
+            try (var inputStream = url.openStream()) {
+                Files.copy(inputStream, file);
+            }
+        } else {
+            download(url, () -> HttpResponse.BodyHandlers.ofFile(file));
+        }
 
         if (sha1 != null) {
             var actual = HashFunction.SHA1.hash(file);
@@ -116,7 +122,7 @@ public class Util {
     }
 
     private static <T> HttpResponse<T> download(URL url, Supplier<HttpResponse.BodyHandler<T>> bodyHandlerFactory) throws IOException {
-        LOGGER.debug("  Downloading " + url);
+        LOGGER.debug("Downloading {}", url);
         int maxAttempts = 10;
         int attempts = 1;
         long waitTime = 1_000L;
@@ -143,7 +149,7 @@ public class Util {
 
             if (httpResponse == null || httpResponse.statusCode() != HttpURLConnection.HTTP_OK) {
                 if (attempts == maxAttempts) {
-                    String errorMessage = "    Failed to download " + url + " - exceeded max attempts of " + maxAttempts;
+                    String errorMessage = "Failed to download " + url + " - exceeded max attempts of " + maxAttempts;
                     if (ioException != null) {
                         throw new IOException(errorMessage, ioException);
                     } else if (httpResponse != null) {
@@ -154,13 +160,13 @@ public class Util {
                 }
 
                 String error = httpResponse == null ? Objects.toString(ioException) : "HTTP Response Code " + httpResponse.statusCode();
-                LOGGER.warn("    Failed to download, attempt: " + attempts + "/" + maxAttempts + ", error: " + error + ", retrying in " + waitTime + " ms...");
+                LOGGER.warn("Failed to download, attempt: {}/{}, error: {}, retrying in {} ms...", attempts, maxAttempts, error, waitTime);
                 try {
                     Thread.sleep(waitTime);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
-                waitTime = Math.min(waitTime * ((long) Math.pow(2, attempts)), 64_000L);
+                waitTime = (waitTime >= MAX_REQUEST_WAIT_MS) ? MAX_REQUEST_WAIT_MS : waitTime * ((long) Math.pow(2, attempts));
 
                 attempts++;
 

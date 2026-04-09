@@ -5,7 +5,6 @@
 package net.neoforged.snowblower.data;
 
 import net.neoforged.snowblower.util.Util;
-import net.neoforged.srgutils.MinecraftVersion;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -26,11 +25,17 @@ public record Version(
     Map<String, Download> downloads,
     List<Library> libraries,
     JavaVersion javaVersion) {
+    // First release time of the unobfuscated versions of Minecraft (the release time of 26.1-snapshot-1)
+    private static final Date FIRST_UNOBFUSCATED_RELEASE_DATE = new Date(1765888949000L);
 
     public static Version load(Path file) throws IOException {
         try (var in = new InputStreamReader(Files.newInputStream(file))) {
             return Util.GSON.fromJson(in, Version.class);
         }
+    }
+
+    public boolean isUnobfuscated() {
+        return FIRST_UNOBFUSCATED_RELEASE_DATE.compareTo(this.releaseTime) <= 0 || this.id.version().endsWith("_unobfuscated");
     }
 
     public record Download(String path, String sha1, int size, URL url) {}

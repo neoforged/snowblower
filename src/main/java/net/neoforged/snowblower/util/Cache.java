@@ -31,6 +31,9 @@ public class Cache {
     }
 
     public Cache put(String key, Path path) throws IOException {
+        if (path == null)
+            return this;
+
         data.put(key, HashFunction.SHA1.hash(path));
         return this;
     }

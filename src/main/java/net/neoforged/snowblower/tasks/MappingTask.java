@@ -4,76 +4,96 @@
  */
 package net.neoforged.snowblower.tasks;
 
+import net.neoforged.snowblower.data.Version;
+import net.neoforged.snowblower.util.Cache;
+import net.neoforged.snowblower.util.DependencyHashCache;
+import net.neoforged.srgutils.IMappingFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import net.neoforged.snowblower.data.Version;
-import net.neoforged.snowblower.util.Cache;
-import net.neoforged.snowblower.util.Util;
-import net.neoforged.srgutils.IMappingFile;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class MappingTask {
+    public static final String MAPPINGS_FILENAME = "moj_to_obf.tsrg";
+    public static final String MAPPINGS_CACHE_FILENAME = MAPPINGS_FILENAME + ".cache";
     private static final Logger LOGGER = LoggerFactory.getLogger(MappingTask.class);
-    
-    public static Path getMergedMappings(Path cache, Version version, Path extraMappings) throws IOException {
-        var clientMojToObf = downloadMappings(cache, extraMappings, version, "client");
 
-        if (clientMojToObf == null) {
-            LOGGER.debug("  Client mappings not found, skipping version");
-            return null;
-        }
-
-        var serverMojToObf = downloadMappings(cache, extraMappings, version, "server");
-
-        if (serverMojToObf == null) {
-            LOGGER.debug("  Server mappings not found, skipping version");
-            return null;
-        }
-
-        if (!canMerge(clientMojToObf, serverMojToObf))
-            throw new IllegalStateException("Client mappings for " + version.id() + " are not a strict superset of the server mappings.");
+    private static Cache getKey(Path cache, Version version) throws IOException {
+        Path clientMappings = cache.resolve("client_mappings.txt");
+        Path serverMappings = cache.resolve("server_mappings.txt");
 
         var key = new Cache()
-            // Should we add code version? I don't think it matters much for this one.
-            .put("client", cache.resolve("client_mappings.txt"))
-            .put("server", cache.resolve("server_mappings.txt"));
-        var keyF = cache.resolve("obf_to_moj.tsrg.cache");
-        var ret = cache.resolve("obf_to_moj.tsrg");
+                .put("client", Files.exists(clientMappings) ? clientMappings : null)
+                .put("server", Files.exists(serverMappings) ? serverMappings : null);
+
+        Version.Download clientMappingsDownload = version.downloads().get("client_mappings");
+        if (clientMappingsDownload != null)
+            key.put("client_mappings", clientMappingsDownload.sha1());
+        Version.Download serverMappingsDownload = version.downloads().get("server_mappings");
+        if (serverMappingsDownload != null)
+            key.put("server_mappings", serverMappingsDownload.sha1());
+
+        return key;
+    }
+
+    @SuppressWarnings("unused") // depCache is kept for parity with other similar methods
+    public static boolean inPartialCache(Path cache, Version version, DependencyHashCache depCache) throws IOException {
+        var mappings = cache.resolve(MAPPINGS_FILENAME);
+        if (!Files.exists(mappings))
+            return version.isUnobfuscated(); // No mappings necessary if unobfuscated, so count it as in the partial cache
+
+        var key = getKey(cache, version);
+        var keyF = cache.resolve(MAPPINGS_CACHE_FILENAME);
+
+        return Files.exists(keyF) && key.isValid(keyF);
+    }
+
+    public static Path getMergedMappings(Path cache, Version version) throws IOException {
+        boolean unobfuscated = version.isUnobfuscated();
+        var clientMojToObf = downloadMappings(cache, "client");
+
+        if (!unobfuscated && clientMojToObf == null) {
+            LOGGER.debug("Client mappings not found, skipping version");
+            return null;
+        }
+
+        var serverMojToObf = downloadMappings(cache, "server");
+
+        if (!unobfuscated && serverMojToObf == null) {
+            LOGGER.debug("Server mappings not found, skipping version");
+            return null;
+        }
+
+        if (clientMojToObf == null && serverMojToObf == null)
+            return null;
+
+        if (clientMojToObf != null && serverMojToObf != null && !canMerge(clientMojToObf, serverMojToObf))
+            throw new IllegalStateException("Client mappings for " + version.id() + " are not a strict superset of the server mappings.");
+
+        var key = getKey(cache, version);
+        var keyF = cache.resolve(MAPPINGS_CACHE_FILENAME);
+        var ret = cache.resolve(MAPPINGS_FILENAME);
 
         if (!Files.exists(ret) || !key.isValid(keyF)) {
-            clientMojToObf.write(ret, IMappingFile.Format.TSRG2, true);
+            var mappingsToWrite = clientMojToObf != null ? clientMojToObf : serverMojToObf;
+            mappingsToWrite.write(ret, IMappingFile.Format.TSRG2, false);
             key.write(keyF);
         }
 
         return ret;
     }
 
-
-    private static IMappingFile downloadMappings(Path cache, Path extraMappings, Version version, String type) throws IOException {
+    private static IMappingFile downloadMappings(Path cache, String type) throws IOException {
         var mappings = cache.resolve(type + "_mappings.txt");
 
-        if (!Files.exists(mappings)) {
-            boolean copiedFromExtra = false;
-
-            if (extraMappings != null) {
-                Path extraMap = extraMappings.resolve(version.type()).resolve(version.id().toString()).resolve("maps").resolve(type + ".txt");
-                if (Files.exists(extraMap)) {
-                    Files.copy(extraMap, mappings, StandardCopyOption.REPLACE_EXISTING);
-                    copiedFromExtra = true;
-                }
-            }
-
-            if (!copiedFromExtra && !Util.downloadFile(mappings, version, type + "_mappings"))
-                return null;
-        }
+        if (!Files.exists(mappings))
+            return null; // Downloaded ahead of time by ArtifactDiscoverer
 
         try (var in = Files.newInputStream(mappings)) {
             return IMappingFile.load(in);

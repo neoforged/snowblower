@@ -9,22 +9,23 @@ import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 import net.neoforged.snowblower.data.Config;
 import net.neoforged.snowblower.data.Config.BranchSpec;
+import net.neoforged.snowblower.data.MinecraftVersion;
+import net.neoforged.snowblower.github.GitHubAppCredentials;
+import net.neoforged.snowblower.github.GitHubActions;
 import net.neoforged.snowblower.util.DependencyHashCache;
 import net.neoforged.snowblower.util.Util;
-import net.neoforged.srgutils.MinecraftVersion;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.transport.CredentialsProvider;
 import org.eclipse.jgit.transport.URIish;
 
 import java.io.File;
+import java.io.InputStreamReader;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -44,8 +45,8 @@ public class Main {
         var checkoutO = parser.accepts("checkout", "Whether to checkout the remote branch (if it exists) before generating").availableIf("remote");
         var pushO = parser.accepts("push", "Whether to push the branch to the remote once finished").availableIf("remote");
         var committerO = parser.accepts("committer", "The name and email of the user to use as the committer, separated by a space. If omitted, defaults to snowforge").withRequiredArg();
-        var partialCache = parser.accepts("partial-cache", "If true, the cache will be partial, meaning that the server and client jar will be deleted, leaving only the joined jar. The SHA in the version manifest will be used to determine whether the joined jar should be remade");
-        
+        var partialCacheO = parser.accepts("partial-cache", "If present, the cache will be partial, meaning that the server and client jar will be deleted, leaving only the joined jar. The SHA1 hashes in the version manifest will be used to determine whether the joined jar should be remade");
+
         var excludeO = parser.accepts("exclude", "A glob pattern (see FileSystem#getPathMatcher) for excluding files from the output").withRequiredArg().ofType(String.class);
         var includeO = parser.accepts("include", "A glob pattern (see FileSystem#getPathMatcher) for including only specified files from the output").withRequiredArg().ofType(String.class);
 
@@ -70,10 +71,10 @@ public class Main {
                     app -> app.getInstallationByRepository(splitRepo[0], splitRepo[1]).createToken().create()));
         }
 
-        var depHashCacheUrl = Main.class.getResourceAsStream("/dependency_hashes.txt");
-        if (depHashCacheUrl == null)
+        var depHashCacheStream = Main.class.getResourceAsStream("/dependency_hashes.txt");
+        if (depHashCacheStream == null)
             throw new IllegalStateException("Could not find dependency_hashes.txt on classpath");
-        var depCache = DependencyHashCache.load(depHashCacheUrl);
+        var depCache = DependencyHashCache.load(depHashCacheStream);
 
         File output = options.valueOf(outputO);
         File cache = options.valueOf(cacheO);
@@ -82,7 +83,7 @@ public class Main {
         Path extraMappingsPath = extraMappings == null ? null : extraMappings.toPath();
         boolean startOver = options.has(startOverO);
         boolean startOverIfRequired = !startOver && options.has(startOverIfRequiredO);
-        boolean partialCachce = options.has(partialCache);
+        boolean partialCache = options.has(partialCacheO);
         URIish remote = options.has(remoteO) ? options.valueOf(remoteO) : null;
         boolean checkout = options.has(checkoutO);
         boolean push = options.has(pushO);
@@ -91,11 +92,11 @@ public class Main {
 
         var startVer = options.has(startVerO) ? MinecraftVersion.from(options.valueOf(startVerO)) : null;
         var targetVer = options.has(targetVerO) ? MinecraftVersion.from(options.valueOf(targetVerO)) : null;
-        if (targetVer != null && targetVer.compareTo(startVer) < 0)
-            throw new IllegalArgumentException("Target version must be greater than or equal to start version");
         var cliBranch = new BranchSpec(options.has(releasesOnlyO) ? "release" : "all", startVer, targetVer);
 
         String branchName = options.valueOf(branchNameO);
+
+        GitHubActions.setEnvironment(Boolean.parseBoolean(System.getenv("GITHUB_ACTIONS")));
 
         Config cfg;
         if (options.has(configO)) {
@@ -111,10 +112,14 @@ public class Main {
                 throw new RuntimeException(e);
             }
         } else {
-            Map<String, BranchSpec> branches = new HashMap<>();
-            branches.put("release", new BranchSpec("release", null, null));
-            branches.put("dev", new BranchSpec("all", null, null));
-            cfg = new Config(branches);
+            try (var is = Main.class.getResourceAsStream("/default_branch_config.json")) {
+                if (is == null)
+                    throw new IllegalStateException("Could not find default branch config? Should be impossible!");
+
+                try (var reader = new InputStreamReader(is)) {
+                    cfg = Util.GSON.fromJson(reader, Config.class);
+                }
+            }
         }
 
         if (options.has(committerO)) {
@@ -126,7 +131,7 @@ public class Main {
         }
 
         try (var gen = new Generator(output.toPath(), cachePath, extraMappingsPath, depCache, includes, excludes)) {
-            gen.setup(branchName, remote, checkout, push, cfg, cliBranch, startOver, startOverIfRequired, partialCachce);
+            gen.setup(branchName, remote, checkout, push, cfg, cliBranch, startOver, startOverIfRequired, partialCache);
             gen.run();
         }
     }

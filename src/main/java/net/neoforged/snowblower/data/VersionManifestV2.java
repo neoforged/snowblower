@@ -5,7 +5,6 @@
 package net.neoforged.snowblower.data;
 
 import net.neoforged.snowblower.util.Util;
-import net.neoforged.srgutils.MinecraftVersion;
 
 import java.io.IOException;
 import java.net.URL;

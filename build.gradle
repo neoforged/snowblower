@@ -8,12 +8,12 @@ plugins {
     id 'maven-publish'
     id 'eclipse'
     id 'idea'
-    id 'org.cadixdev.licenser' version '0.6.1'
-    id 'com.github.johnrengelman.shadow' version '8.1.1'
-    id 'net.neoforged.gradleutils' version '3.0.0-alpha.10'
+    id 'net.neoforged.licenser' version '0.7.5'
+    id 'com.gradleup.shadow' version '9.4.1'
+    id 'net.neoforged.gradleutils' version '5.1.1'
 }
 
-group 'net.neoforged'
+group = 'net.neoforged'
 base {
     archivesName.set('snowblower')
 }
@@ -26,7 +26,7 @@ println "Version: $version"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
@@ -50,10 +50,10 @@ dependencies {
     shade 'net.sf.jopt-simple:jopt-simple:6.0-alpha-3'
     shade 'com.google.code.gson:gson:2.12.1'
     shade 'net.neoforged:srgutils:1.0.10'
-    shade 'org.vineflower:vineflower:1.11.1'
-    shade 'net.neoforged.installertools:installertools:3.0.2'
-    shade 'net.neoforged:AutoRenamingTool:2.0.8'
-    shade 'net.neoforged:mergetool:2.0.6'
+    shade 'org.vineflower:vineflower:1.11.2'
+    shade 'net.neoforged:vineflower-plugins:0.1.5'
+    shade 'net.neoforged.installertools:installertools:4.0.13'
+    shade 'net.neoforged:mergetool:2.0.7'
 
     shade 'org.bouncycastle:bcpkix-jdk18on:1.80'
     shade 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3'
@@ -125,10 +125,6 @@ tasks.named('shadowJar', ShadowJar).configure {
     }
 
     finalizedBy 'shadowJarFixup'
-}
-
-artifacts {
-    archives tasks.named('shadowJar', ShadowJar)
 }
 
 changelog {

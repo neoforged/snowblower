@@ -19,5 +19,5 @@ jobs:
   build:
     uses: neoforged/actions/.github/workflows/build-prs.yml@main
     with:
-      java: 17
+      java: 25
       gradle_tasks: build

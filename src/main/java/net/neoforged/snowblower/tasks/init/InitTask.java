@@ -21,51 +21,30 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
+import net.neoforged.snowblower.data.MinecraftVersion;
 import net.neoforged.snowblower.util.Cache;
 import org.eclipse.jgit.api.AddCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.dircache.DirCache;
-import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.FileMode;
-import org.eclipse.jgit.lib.ObjectId;
 
 import net.neoforged.snowblower.Generator;
-import net.neoforged.snowblower.Main;
 import net.neoforged.snowblower.util.Util;
-import net.neoforged.srgutils.MinecraftVersion;
 
 public class InitTask {
     private static final String COMMIT_MESSAGE = "Initial commit";
-    private final Path root;
-    private final Git git;
 
-    public InitTask(Path root, Git git) {
-        this.root = root;
-        this.git = git;
-    }
-
-    public void cleanup() throws IOException {
-        for (var file : new String[]{"Snowblower.txt", ".gitattributes", ".gitignore", "gradlew", "gradlew.bat", "gradle"}) {
-            var target = this.root.resolve(file);
-            if (Files.isDirectory(target))
-                Util.deleteRecursive(target);
-            else if (Files.exists(target))
-                Files.delete(target);
-        }
-    }
-
-    public boolean validate(MinecraftVersion start) throws IOException, GitAPIException {
+    public static boolean validateOrInit(Path output, Git git, MinecraftVersion start) throws IOException, GitAPIException {
         var meta = new Cache().comment(
             "Source files created by Snowblower",
             "https://github.com/neoforged/snowblower")
-            .put("Snowblower", getGitCommitHash()) // Now that I moved this to its own package, we could use the package hash. But I like the git commit.
+            .put("VersionId", Integer.toString(Generator.VERSION_ID))
             .put("Start", start.toString());
 
-        var metaPath = root.resolve("Snowblower.txt");
-        if (Files.exists(metaPath) && !meta.isValid(metaPath)) {
+        var metaPath = output.resolve("Snowblower.txt");
+        if (Files.exists(metaPath) && !meta.isValid(metaPath))
             return false;
-        }
 
         if (!Files.exists(metaPath)) {
             // Create metadata file
@@ -73,7 +52,7 @@ public class InitTask {
             Util.add(git, metaPath);
 
             // Create some git metadata files to make life sane
-            var attrs = root.resolve(".gitattributes");
+            var attrs = output.resolve(".gitattributes");
             Util.writeLines(attrs,
                 "* text eol=lf",
                 "*.java text eol=lf",
@@ -89,7 +68,7 @@ public class InitTask {
             );
             Util.add(git, attrs);
 
-            var ignore = root.resolve(".gitignore");
+            var ignore = output.resolve(".gitignore");
             Util.writeLines(ignore,
                 ".gradle",
                 "build",
@@ -108,20 +87,20 @@ public class InitTask {
             );
             Util.add(git, ignore);
 
-            try (var fs = FileSystems.newFileSystem(getOurJar(), (ClassLoader) null)) {
-                Path copyParentFolder = Util.isDev() ? Util.getSourcePath() : fs.getRootDirectories().iterator().next();
+            try (var fs = Util.isDev() ? null : FileSystems.newFileSystem(getOurJar(), (ClassLoader) null)) {
+                Path copyParentFolder = fs == null ? Util.getSourcePath() : fs.getRootDirectories().iterator().next();
                 List<String> toCopy = List.of("gradlew", "gradlew.bat", "gradle/wrapper");
                 AddCommand addCmd = git.add();
 
                 for (String filename : toCopy) {
                     Path copyPath = copyParentFolder.resolve(filename);
                     if (Files.isRegularFile(copyPath)) {
-                        Files.copy(copyPath, root.resolve(filename), StandardCopyOption.REPLACE_EXISTING);
+                        Files.copy(copyPath, output.resolve(filename), StandardCopyOption.REPLACE_EXISTING);
                     } else {
                         Files.walkFileTree(copyPath, new SimpleFileVisitor<>() {
                             @Override
                             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                                Path destinationPath = root.resolve(copyParentFolder.relativize(file).toString());
+                                Path destinationPath = output.resolve(copyParentFolder.relativize(file).toString());
                                 Files.createDirectories(destinationPath.getParent());
                                 Files.copy(file, destinationPath, StandardCopyOption.REPLACE_EXISTING);
                                 return FileVisitResult.CONTINUE;
@@ -139,7 +118,7 @@ public class InitTask {
             dirCache.write();
             dirCache.commit();
 
-            PosixFileAttributeView posixFileAttributeView = Files.getFileAttributeView(root.resolve("gradlew"), PosixFileAttributeView.class);
+            PosixFileAttributeView posixFileAttributeView = Files.getFileAttributeView(output.resolve("gradlew"), PosixFileAttributeView.class);
             if (posixFileAttributeView != null) {
                 Set<PosixFilePermission> perms = posixFileAttributeView.readAttributes().permissions();
                 perms.addAll(EnumSet.of(PosixFilePermission.OWNER_EXECUTE, PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_EXECUTE));
@@ -153,7 +132,7 @@ public class InitTask {
         return true;
     }
 
-    private Path getOurJar() {
+    private static Path getOurJar() {
         try {
             return Paths.get(InitTask.class.getProtectionDomain().getCodeSource().getLocation().toURI());
         } catch (URISyntaxException e) {
@@ -161,31 +140,7 @@ public class InitTask {
         }
     }
 
-    private static String getGitCommitHash() {
-        String implVersion = Generator.class.getPackage().getImplementationVersion();
-        if (implVersion != null)
-            return implVersion.substring(implVersion.indexOf('(') + 1, implVersion.indexOf(')'));
-
-        try {
-            // This should never be a jar if the implementation version is missing, so we don't need Util#getPath
-            Path folderPath = Path.of(Util.getCodeSourceUri());
-
-            while (!Files.exists(folderPath.resolve(".git"))) {
-                folderPath = folderPath.getParent();
-                if (folderPath == null)
-                    return "unknown";
-            }
-
-            try (Git sourceGit = Git.open(folderPath.toFile())) {
-                ObjectId headId = sourceGit.getRepository().resolve(Constants.HEAD);
-                return headId == null ? "unknown" : headId.getName();
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public boolean isInitCommit(String message) {
+    public static boolean isInitCommit(String message) {
         return COMMIT_MESSAGE.equals(message);
     }
 }

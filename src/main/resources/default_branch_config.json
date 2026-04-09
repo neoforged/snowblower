@@ -1,0 +1,34 @@
+{
+  "branches": {
+    "releases": {
+      "type": "release"
+    },
+    "snapshots": {
+      "type": "all"
+    },
+    "april-fools/20w14infinite": {
+      "type": "all",
+      "versions": ["20w13b", "20w14infinite"]
+    },
+    "april-fools/22w13oneblockatatime": {
+      "type": "all",
+      "versions": ["1.18.2", "22w13oneblockatatime"]
+    },
+    "april-fools/23w13a_or_b": {
+      "type": "all",
+      "versions": ["23w13a", "23w13a_or_b"]
+    },
+    "april-fools/24w14potato": {
+      "type": "all",
+      "versions": ["24w12a", "24w14potato"]
+    },
+    "april-fools/25w14craftmine": {
+      "type": "all",
+      "versions": ["1.21.5-rc1", "25w14craftmine"]
+    },
+    "april-fools/26w14a": {
+      "type": "all",
+      "versions": ["26.1.1", "26w14a"]
+    }
+  }
+}
