@@ -22,8 +22,8 @@ java -jar snowblower-2.0.31-all.jar --output ./output --branch release --start-o
 ```
 
 - `--output ./output`: Specifies the output directory for the generated repository, can be a path relative to the current working directory or an absolute path.
-- `--branch release`: Designates the target branch, which is typically `release` or `dev`.
-  - Using the `dev` branch will also include snapshot versions in the generated output.
+- `--branch releases`: Designates the target branch, which is typically `release` or `snapshots`.
+  - Using the `snapshots` branch will also include snapshot versions in the generated output.
 - `--start-over-if-required`: Ensures the process starts from scratch if necessary (e.g., when updating Snowblower or changing the start or target versions).
 
 💡 **Note**: Generating every version takes a considerable amount of time and a good amount of CPU and RAM. Ensure that you allocate at least 2-3 GBs of RAM. A higher CPU core count also typically helps speed things up, as decompilation (the main bottleneck) will utilize every available core when possible.
