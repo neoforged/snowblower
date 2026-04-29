@@ -111,7 +111,7 @@ public class Generator implements AutoCloseable {
             this.git = Git.open(this.output.toFile());
         } catch (RepositoryNotFoundException e) { // I wish there was a better way to detect if it exists/is init
             if (branchName == null)
-                branchName = "release";
+                branchName = "releases";
             Util.deleteRecursive(this.output);
             this.git = Git.init().setDirectory(this.output.toFile()).setInitialBranch(branchName).call();
         }
