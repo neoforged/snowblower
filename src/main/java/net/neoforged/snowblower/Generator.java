@@ -430,9 +430,9 @@ public class Generator implements AutoCloseable {
             }
 
             if (endVerExists) {
-                LOGGER.error("End version \"{}\" is not included by the current branch configuration. Please change the included versions list or branch and try again.", startVer);
+                LOGGER.error("End version \"{}\" is not included by the current branch configuration. Please change the included versions list or branch and try again.", targetVer);
             } else {
-                LOGGER.error("End version \"{}\" not found in version manifest.", startVer);
+                LOGGER.error("End version \"{}\" not found in version manifest.", targetVer);
             }
             return null;
         }
